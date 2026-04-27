@@ -1,11 +1,24 @@
 package usecase
 
-import "audit-go/internal/repository"
+import (
+	"fmt"
 
-type GetDocumentUseCase struct {
-	Repo repository.DocumentRepository
+	"audit-go/internal/domain"
+)
+
+type getDocumentRepo interface {
+	FindByID(id string) (*domain.Document, error)
 }
 
-func (u GetDocumentUseCase) Execute(id string) (any, error) {
-	return u.Repo.FindByID(id)
+type GetDocumentUseCase struct {
+	DocRepo getDocumentRepo
+}
+
+func (u GetDocumentUseCase) Execute(id string) (*domain.Document, error) {
+	doc, err := u.DocRepo.FindByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("document not found: %w", err)
+	}
+
+	return doc, nil
 }

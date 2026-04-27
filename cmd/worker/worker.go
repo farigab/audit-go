@@ -1,0 +1,26 @@
+package main
+
+import (
+	"os"
+	"os/signal"
+	"syscall"
+
+	"audit-go/internal/platform/logger"
+	"audit-go/internal/worker"
+)
+
+func main() {
+	log := logger.New() // JSON puro em produção, sem pretty
+
+	w := worker.New(log)
+
+	// roda em goroutine para não bloquear o signal handler
+	go w.Start()
+
+	// aguarda SIGTERM ou SIGINT para desligar graciosamente
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	<-quit
+
+	log.Info().Msg("worker shutting down")
+}

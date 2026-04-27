@@ -1,22 +1,38 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/rs/zerolog"
 
+	"audit-go/internal/domain"
 	"audit-go/internal/platform/contextx"
 	"audit-go/internal/usecase"
 )
 
 type Handler struct {
-	Log    zerolog.Logger
-	delete usecase.DeleteDocumentUseCase
+	Log            zerolog.Logger
+	createDocument usecase.CreateDocumentUseCase
+	deleteDocument usecase.DeleteDocumentUseCase
+	getDocument    usecase.GetDocumentUseCase
 }
 
-func NewHandler(log zerolog.Logger, delete usecase.DeleteDocumentUseCase) Handler {
-	return Handler{Log: log, delete: delete}
+func NewHandler(
+	log zerolog.Logger,
+	create usecase.CreateDocumentUseCase,
+	delete usecase.DeleteDocumentUseCase,
+	get usecase.GetDocumentUseCase,
+) Handler {
+	return Handler{
+		Log:            log,
+		createDocument: create,
+		deleteDocument: delete,
+		getDocument:    get,
+	}
 }
+
+const method_not_allowed = "method not allowed"
 
 func (h Handler) Health(w http.ResponseWriter, r *http.Request) {
 	if err := WriteText(w, http.StatusOK, "ok"); err != nil {
@@ -24,7 +40,94 @@ func (h Handler) Health(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		if err := WriteError(w, http.StatusMethodNotAllowed, method_not_allowed); err != nil {
+			h.logWriteError(r, err)
+		}
+		return
+	}
+
+	var body struct {
+		JVID       string         `json:"jv_id"`
+		Name       string         `json:"name"`
+		Type       domain.DocType `json:"type"`
+		StorageKey string         `json:"storage_key"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if werr := WriteError(w, http.StatusBadRequest, "invalid request body"); werr != nil {
+			h.logWriteError(r, werr)
+		}
+		return
+	}
+
+	if body.JVID == "" || body.Name == "" || body.StorageKey == "" {
+		if err := WriteError(w, http.StatusBadRequest, "jv_id, name and storage_key are required"); err != nil {
+			h.logWriteError(r, err)
+		}
+		return
+	}
+
+	ctx := r.Context()
+	doc, err := h.createDocument.Execute(usecase.CreateDocumentInput{
+		JVID:       body.JVID,
+		TenantID:   contextx.Get(ctx, contextx.TenantIDKey),
+		ActorID:    contextx.Get(ctx, contextx.UserIDKey),
+		RequestID:  contextx.Get(ctx, contextx.RequestIDKey),
+		Name:       body.Name,
+		Type:       body.Type,
+		StorageKey: body.StorageKey,
+	})
+	if err != nil {
+		if werr := WriteError(w, http.StatusInternalServerError, "failed to create document"); werr != nil {
+			h.logWriteError(r, werr)
+		}
+		return
+	}
+
+	if err := WriteJSON(w, http.StatusCreated, doc); err != nil {
+		h.logWriteError(r, err)
+	}
+}
+
+func (h Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		if err := WriteError(w, http.StatusMethodNotAllowed, method_not_allowed); err != nil {
+			h.logWriteError(r, err)
+		}
+		return
+	}
+
+	documentID := r.URL.Query().Get("id")
+	if documentID == "" {
+		if err := WriteError(w, http.StatusBadRequest, "id is required"); err != nil {
+			h.logWriteError(r, err)
+		}
+		return
+	}
+
+	doc, err := h.getDocument.Execute(documentID)
+	if err != nil {
+		if werr := WriteError(w, http.StatusNotFound, "document not found"); werr != nil {
+			h.logWriteError(r, werr)
+		}
+		return
+	}
+
+	if err := WriteJSON(w, http.StatusOK, doc); err != nil {
+		h.logWriteError(r, err)
+	}
+}
+
 func (h Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		if err := WriteError(w, http.StatusMethodNotAllowed, "method not allowed"); err != nil {
+			h.logWriteError(r, err)
+		}
+		return
+	}
+
 	documentID := r.URL.Query().Get("id")
 	if documentID == "" {
 		if err := WriteError(w, http.StatusBadRequest, "id is required"); err != nil {
@@ -34,13 +137,12 @@ func (h Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	err := h.delete.Execute(usecase.DeleteDocumentInput{
+	if err := h.deleteDocument.Execute(usecase.DeleteDocumentInput{
 		DocumentID: documentID,
 		ActorID:    contextx.Get(ctx, contextx.UserIDKey),
 		TenantID:   contextx.Get(ctx, contextx.TenantIDKey),
 		RequestID:  contextx.Get(ctx, contextx.RequestIDKey),
-	})
-	if err != nil {
+	}); err != nil {
 		if werr := WriteError(w, http.StatusNotFound, err.Error()); werr != nil {
 			h.logWriteError(r, werr)
 		}

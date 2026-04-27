@@ -14,32 +14,28 @@ import (
 func main() {
 	log := logger.NewPretty()
 
-	// repositórios em memória — trocar por postgres quando o banco estiver pronto
-	docRepo := memory.NewDocumentRepository()
+	docRepo   := memory.NewDocumentRepository()
 	auditRepo := memory.NewAuditEventRepository()
 
-	// usecases
-	deleteDoc := usecase.DeleteDocumentUseCase{
-		DocRepo:   docRepo,
-		AuditRepo: auditRepo,
-	}
+	handler := httpdelivery.NewHandler(
+		log,
+		usecase.CreateDocumentUseCase{DocRepo: docRepo, AuditRepo: auditRepo},
+		usecase.DeleteDocumentUseCase{DocRepo: docRepo, AuditRepo: auditRepo},
+		usecase.GetDocumentUseCase{DocRepo: docRepo},
+	)
 
-	// handler com dependências injetadas
-	handler := httpdelivery.NewHandler(log, deleteDoc)
-
-	// rotas
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", handler.Health)
-	mux.HandleFunc("/documents/delete", handler.DeleteDocument)
+	mux.HandleFunc("/health",           handler.Health)
+	mux.HandleFunc("/documents",        handler.CreateDocument) // POST
+	mux.HandleFunc("/documents/get",    handler.GetDocument)    // GET  ?id=
+	mux.HandleFunc("/documents/delete", handler.DeleteDocument) // DELETE ?id=
 
-	w := worker.New(log)
-	go w.Start()
-
-	// middlewares — ordem importa: RequestContext antes do Logging
-	// para que o Logging já enxergue request_id, user_id, tenant_id
 	var app http.Handler = mux
 	app = httpdelivery.RequestContext(log, app)
 	app = httpdelivery.Logging(log, app)
+
+	w := worker.New(log)
+	go w.Start()
 
 	addr := envOr("ADDR", ":8080")
 	log.Info().Str("addr", addr).Msg("server started")

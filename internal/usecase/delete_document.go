@@ -1,4 +1,3 @@
-// internal/usecase/delete_document.go
 package usecase
 
 import (
@@ -7,12 +6,22 @@ import (
 	"github.com/google/uuid"
 
 	"audit-go/internal/domain"
-	"audit-go/internal/repository"
 )
 
+// interfaces mínimas — só o que este usecase precisa
+// não existe uma interface global de "tudo que um repo de documento faz"
+type documentRepo interface {
+	FindByID(id string) (*domain.Document, error)
+	Delete(id string) error
+}
+
+type auditRepo interface {
+	Save(event domain.AuditEvent) error
+}
+
 type DeleteDocumentUseCase struct {
-	DocRepo   repository.DocumentRepository
-	AuditRepo repository.AuditEventRepository
+	DocRepo   documentRepo
+	AuditRepo auditRepo
 }
 
 type DeleteDocumentInput struct {
