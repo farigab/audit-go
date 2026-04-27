@@ -11,6 +11,10 @@ type AuditEventRepository struct {
 	data []domain.AuditEvent
 }
 
+func NewAuditEventRepository() *AuditEventRepository {
+	return &AuditEventRepository{}
+}
+
 func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
