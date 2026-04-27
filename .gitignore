@@ -1,0 +1,33 @@
+# variáveis de ambiente
+.env
+!.env.example
+
+# binários gerados
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# binários de build (caso use pasta bin)
+bin/
+build/
+dist/
+
+# arquivos de debug
+__debug_bin.exe
+
+# cache do Go
+*.test
+*.out
+
+# arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+
+# VS Code
+.vscode/*
+!.vscode/launch.json
