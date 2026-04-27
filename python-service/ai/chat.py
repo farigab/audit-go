@@ -20,4 +20,4 @@ def ask(context: str, question: str) -> str:
             },
         ],
     )
-    return response.choices[0].message.content
+    return response.choices[0].message.content or ""
