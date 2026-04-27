@@ -1,7 +1,15 @@
 package worker
 
-import "fmt"
+import "github.com/rs/zerolog"
 
-func Start() {
-	fmt.Println("Worker iniciado...")
+type FileWorker struct {
+	Log zerolog.Logger
+}
+
+func New(log zerolog.Logger) *FileWorker {
+	return &FileWorker{Log: log}
+}
+
+func (w *FileWorker) Start() {
+	w.Log.Info().Msg("file worker started")
 }

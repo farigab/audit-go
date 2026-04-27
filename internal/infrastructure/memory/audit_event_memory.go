@@ -7,12 +7,8 @@ import (
 )
 
 type AuditEventRepository struct {
-	mu   sync.Mutex
+	mu   sync.RWMutex // RWMutex, não Mutex
 	data []domain.AuditEvent
-}
-
-func NewAuditEventRepository() *AuditEventRepository {
-	return &AuditEventRepository{}
 }
 
 func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
@@ -23,8 +19,8 @@ func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
 }
 
 func (r *AuditEventRepository) FindByTarget(targetID string) ([]domain.AuditEvent, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock() // leitura compartilhada
+	defer r.mu.RUnlock()
 	var result []domain.AuditEvent
 	for _, e := range r.data {
 		if e.TargetID == targetID {
@@ -35,8 +31,8 @@ func (r *AuditEventRepository) FindByTarget(targetID string) ([]domain.AuditEven
 }
 
 func (r *AuditEventRepository) FindByTenant(tenantID string) ([]domain.AuditEvent, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	var result []domain.AuditEvent
 	for _, e := range r.data {
 		if e.TenantID == tenantID {

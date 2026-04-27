@@ -8,6 +8,7 @@ import (
 	"audit-go/internal/infrastructure/memory"
 	"audit-go/internal/platform/logger"
 	"audit-go/internal/usecase"
+	"audit-go/internal/worker"
 )
 
 func main() {
@@ -30,6 +31,9 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handler.Health)
 	mux.HandleFunc("/documents/delete", handler.DeleteDocument)
+
+	w := worker.New(log)
+	go w.Start()
 
 	// middlewares — ordem importa: RequestContext antes do Logging
 	// para que o Logging já enxergue request_id, user_id, tenant_id

@@ -2,11 +2,12 @@
 package usecase
 
 import (
-	"fmt"
+    "fmt"
 
-	"audit-go/internal/domain"
-	"audit-go/internal/repository"
-	"github.com/google/uuid"
+    "github.com/google/uuid"
+
+    "audit-go/internal/domain"
+    "audit-go/internal/repository"
 )
 
 type DeleteDocumentUseCase struct {
