@@ -3,19 +3,19 @@ package http
 import (
 	"net/http"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"audit-go/internal/domain"
 	"audit-go/internal/platform/contextx"
+	"audit-go/internal/usecase"
 )
 
 type Handler struct {
-	Log zerolog.Logger
+	Log    zerolog.Logger
+	delete usecase.DeleteDocumentUseCase
 }
 
-func NewHandler(log zerolog.Logger) Handler {
-	return Handler{Log: log}
+func NewHandler(log zerolog.Logger, delete usecase.DeleteDocumentUseCase) Handler {
+	return Handler{Log: log, delete: delete}
 }
 
 func (h Handler) Health(w http.ResponseWriter, r *http.Request) {
@@ -25,9 +25,7 @@ func (h Handler) Health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	documentID := r.URL.Query().Get("id")
-
 	if documentID == "" {
 		if err := WriteError(w, http.StatusBadRequest, "id is required"); err != nil {
 			h.logWriteError(r, err)
@@ -35,24 +33,24 @@ func (h Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event := domain.NewAuditEvent(
-		uuid.NewString(),
-		contextx.Get(ctx, contextx.TenantIDKey),
-		contextx.Get(ctx, contextx.UserIDKey),
-		contextx.Get(ctx, contextx.RequestIDKey),
-		domain.ActionDocumentDeleted,
-		documentID,
-		domain.TargetDocument,
-	)
+	ctx := r.Context()
+	err := h.delete.Execute(usecase.DeleteDocumentInput{
+		DocumentID: documentID,
+		ActorID:    contextx.Get(ctx, contextx.UserIDKey),
+		TenantID:   contextx.Get(ctx, contextx.TenantIDKey),
+		RequestID:  contextx.Get(ctx, contextx.RequestIDKey),
+	})
+	if err != nil {
+		if werr := WriteError(w, http.StatusNotFound, err.Error()); werr != nil {
+			h.logWriteError(r, werr)
+		}
+		return
+	}
 
-	h.Log.Info().
-		Str("event", string(event.Action)).
-		Str("target_id", event.TargetID).
-		Str("actor_id", event.ActorID).
-		Str("request_id", event.RequestID).
-		Msg("audit")
-
-	if err := WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": documentID}); err != nil {
+	if err := WriteJSON(w, http.StatusOK, map[string]string{
+		"status": "deleted",
+		"id":     documentID,
+	}); err != nil {
 		h.logWriteError(r, err)
 	}
 }

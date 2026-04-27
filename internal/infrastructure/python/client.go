@@ -59,7 +59,10 @@ func (c *Client) ParseDocument(filename string, content []byte) (*ParseResult, e
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("python service error %d (could not read body): %w", resp.StatusCode, err)
+		}
 		return nil, fmt.Errorf("python service error %d: %s", resp.StatusCode, b)
 	}
 
