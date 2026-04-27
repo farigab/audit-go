@@ -1,0 +1,6 @@
+# Stub — implementar com pgvector ou ChromaDB conforme infra escolhida
+from typing import Protocol
+
+class VectorStore(Protocol):
+    def upsert(self, doc_id: str, vector: list[float], text: str) -> None: ...
+    def search(self, vector: list[float], top_k: int = 5) -> list[dict]: ...
