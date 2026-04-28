@@ -17,6 +17,11 @@ func CORSMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
+			if len(allowedOrigins) == 0 && origin != "" {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
+
 			setOriginHeaders(w, origin, allowedOrigins)
 			setAllowHeaders(w, r)
 
