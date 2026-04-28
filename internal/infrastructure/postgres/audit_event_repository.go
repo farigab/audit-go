@@ -9,14 +9,17 @@ import (
 	"audit-go/internal/domain"
 )
 
+// AuditEventRepository persists audit events into the database.
 type AuditEventRepository struct {
 	db *sql.DB
 }
 
+// NewAuditEventRepository creates a new audit event repository.
 func NewAuditEventRepository(db *sql.DB) *AuditEventRepository {
 	return &AuditEventRepository{db: db}
 }
 
+// Save inserts an audit event into the audit_events table.
 func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
 	metadata, err := json.Marshal(event.Metadata)
 	if err != nil {
@@ -50,6 +53,7 @@ func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
 	return nil
 }
 
+// FindByTarget returns audit events for a given target id.
 func (r *AuditEventRepository) FindByTarget(targetID string) ([]domain.AuditEvent, error) {
 	query := `
 		SELECT id, tenant_id, actor_id, action, target_id, target_type, occurred_at, request_id, metadata
@@ -67,6 +71,7 @@ func (r *AuditEventRepository) FindByTarget(targetID string) ([]domain.AuditEven
 	return scanAuditEvents(rows)
 }
 
+// FindByTenant returns audit events for a given tenant id.
 func (r *AuditEventRepository) FindByTenant(tenantID string) ([]domain.AuditEvent, error) {
 	query := `
 		SELECT id, tenant_id, actor_id, action, target_id, target_type, occurred_at, request_id, metadata

@@ -10,6 +10,7 @@ import (
 	"audit-go/internal/platform/contextx"
 )
 
+// RequestContext returns a middleware that injects request-scoped values.
 func RequestContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := uuid.NewString()
@@ -35,6 +36,7 @@ func (rw *responseWriter) WriteHeader(status int) {
 	rw.ResponseWriter.WriteHeader(status)
 }
 
+// Logging logs incoming HTTP requests using zerolog.
 func Logging(log zerolog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

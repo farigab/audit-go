@@ -1,3 +1,4 @@
+// Package memory provides simple in-memory implementations used for local development and tests.
 package memory
 
 import (
@@ -7,6 +8,7 @@ import (
 	"time"
 )
 
+// RefreshToken represents a refresh token persisted in memory.
 type RefreshToken struct {
 	Token     string
 	UserLogin string
@@ -15,6 +17,7 @@ type RefreshToken struct {
 	Revoked   bool
 }
 
+// RefreshRepo stores refresh tokens in memory. Not safe for production.
 type RefreshRepo struct {
 	mu     sync.Mutex
 	tokens map[string]*RefreshToken
@@ -25,6 +28,7 @@ func NewRefreshTokenRepo() *RefreshRepo {
 	return &RefreshRepo{tokens: make(map[string]*RefreshToken)}
 }
 
+// Save persists a refresh token in memory.
 func (r *RefreshRepo) Save(ctx context.Context, t *RefreshToken) (*RefreshToken, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -38,6 +42,7 @@ func (r *RefreshRepo) Save(ctx context.Context, t *RefreshToken) (*RefreshToken,
 	return t, nil
 }
 
+// FindByToken returns a refresh token by its token string.
 func (r *RefreshRepo) FindByToken(ctx context.Context, token string) (*RefreshToken, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -51,6 +56,7 @@ func (r *RefreshRepo) FindByToken(ctx context.Context, token string) (*RefreshTo
 	return t, nil
 }
 
+// FindByUserLogin returns all refresh tokens for a given user.
 func (r *RefreshRepo) FindByUserLogin(ctx context.Context, userLogin string) ([]*RefreshToken, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -66,6 +72,7 @@ func (r *RefreshRepo) FindByUserLogin(ctx context.Context, userLogin string) ([]
 	return list, nil
 }
 
+// Delete removes a refresh token.
 func (r *RefreshRepo) Delete(ctx context.Context, t *RefreshToken) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -79,6 +86,7 @@ func (r *RefreshRepo) Delete(ctx context.Context, t *RefreshToken) error {
 	return nil
 }
 
+// DeleteAllByUserLogin revokes all tokens for a given user login.
 func (r *RefreshRepo) DeleteAllByUserLogin(ctx context.Context, userLogin string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -93,6 +101,7 @@ func (r *RefreshRepo) DeleteAllByUserLogin(ctx context.Context, userLogin string
 	return nil
 }
 
+// DeleteExpiredTokens removes tokens that have expired.
 func (r *RefreshRepo) DeleteExpiredTokens(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

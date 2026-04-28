@@ -1,3 +1,4 @@
+// Package main is the worker process entrypoint.
 package main
 
 import (

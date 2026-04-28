@@ -5,8 +5,10 @@ import (
 	"time"
 )
 
+// JVStatus describes the lifecycle state of a JointVenture.
 type JVStatus string
 
+// JVStatus constants represent known lifecycle states for a joint venture.
 const (
 	JVStatusDraft     JVStatus = "draft"
 	JVStatusActive    JVStatus = "active"
@@ -14,6 +16,7 @@ const (
 	JVStatusClosed    JVStatus = "closed"
 )
 
+// JointVenture represents a collaboration between parties.
 type JointVenture struct {
 	ID        string            `json:"id"`
 	TenantID  string            `json:"tenant_id"`
@@ -26,6 +29,7 @@ type JointVenture struct {
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
+// NewJointVenture creates a new JointVenture, validating required fields.
 func NewJointVenture(id, tenantID, name, createdBy string, parties []string) (JointVenture, error) {
 	if name == "" {
 		return JointVenture{}, errors.New("joint venture name is required")
@@ -49,6 +53,7 @@ func NewJointVenture(id, tenantID, name, createdBy string, parties []string) (Jo
 	}, nil
 }
 
+// Activate sets the joint venture to active when in draft state.
 func (jv *JointVenture) Activate() error {
 	if jv.Status != JVStatusDraft {
 		return errors.New("only draft joint ventures can be activated")
@@ -58,6 +63,7 @@ func (jv *JointVenture) Activate() error {
 	return nil
 }
 
+// Suspend sets the joint venture to suspended when in active state.
 func (jv *JointVenture) Suspend() error {
 	if jv.Status != JVStatusActive {
 		return errors.New("only active joint ventures can be suspended")
@@ -67,6 +73,7 @@ func (jv *JointVenture) Suspend() error {
 	return nil
 }
 
+// IsActive reports whether the joint venture is currently active.
 func (jv JointVenture) IsActive() bool {
 	return jv.Status == JVStatusActive
 }

@@ -1,3 +1,4 @@
+// Package domain defines the core domain entities used by the audit service.
 package domain
 
 import "time"
@@ -5,6 +6,7 @@ import "time"
 // Action descreve o que aconteceu — sempre no passado.
 type Action string
 
+// Action constants represent audit event action types.
 const (
 	ActionJVCreated        Action = "jv.created"
 	ActionJVActivated      Action = "jv.activated"
@@ -18,6 +20,7 @@ const (
 // TargetType identifica sobre qual entidade o evento se refere.
 type TargetType string
 
+// TargetType constants represent entity types for audit events.
 const (
 	TargetJointVenture TargetType = "joint_venture"
 	TargetDocument     TargetType = "document"

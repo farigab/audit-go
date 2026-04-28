@@ -10,14 +10,17 @@ import (
 	"audit-go/internal/domain"
 )
 
+// DocumentRepository implements persistence operations for documents.
 type DocumentRepository struct {
 	db *sql.DB
 }
 
+// NewDocumentRepository creates a new repository backed by the given DB.
 func NewDocumentRepository(db *sql.DB) *DocumentRepository {
 	return &DocumentRepository{db: db}
 }
 
+// Save inserts or updates a document record.
 func (r *DocumentRepository) Save(doc domain.Document) error {
 	query := `
 		INSERT INTO documents
@@ -51,6 +54,7 @@ func (r *DocumentRepository) Save(doc domain.Document) error {
 	return nil
 }
 
+// FindByID looks up a document by its ID.
 func (r *DocumentRepository) FindByID(id string) (*domain.Document, error) {
 	query := `
 		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
@@ -62,6 +66,7 @@ func (r *DocumentRepository) FindByID(id string) (*domain.Document, error) {
 	return scanDocument(row)
 }
 
+// FindByJVID returns documents belonging to a joint venture.
 func (r *DocumentRepository) FindByJVID(jvID string) ([]domain.Document, error) {
 	query := `
 		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
@@ -79,6 +84,7 @@ func (r *DocumentRepository) FindByJVID(jvID string) ([]domain.Document, error) 
 	return scanDocuments(rows)
 }
 
+// FindUnprocessed returns a batch of unprocessed documents.
 func (r *DocumentRepository) FindUnprocessed() ([]domain.Document, error) {
 	query := `
 		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
@@ -97,6 +103,7 @@ func (r *DocumentRepository) FindUnprocessed() ([]domain.Document, error) {
 	return scanDocuments(rows)
 }
 
+// MarkProcessed marks the document as processed.
 func (r *DocumentRepository) MarkProcessed(id string) error {
 	query := `UPDATE documents SET processed = TRUE WHERE id = $1`
 
@@ -108,6 +115,7 @@ func (r *DocumentRepository) MarkProcessed(id string) error {
 	return nil
 }
 
+// Delete removes a document by id.
 func (r *DocumentRepository) Delete(id string) error {
 	query := `DELETE FROM documents WHERE id = $1`
 

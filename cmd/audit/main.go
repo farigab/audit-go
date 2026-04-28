@@ -1,3 +1,4 @@
+// Package main is the audit API server entrypoint.
 package main
 
 import (

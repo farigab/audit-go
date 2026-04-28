@@ -1,3 +1,4 @@
+// Package usecase implements application use cases and business logic.
 package usecase
 
 import (
@@ -9,6 +10,12 @@ import (
 	"audit-go/internal/domain"
 )
 
+// CreateDocumentUseCase handles the creation and persistence of documents.
+type CreateDocumentUseCase struct {
+	DocRepo   createDocumentRepo
+	AuditRepo createAuditRepo
+}
+
 type createDocumentRepo interface {
 	Save(doc domain.Document) error
 }
@@ -17,11 +24,7 @@ type createAuditRepo interface {
 	Save(event domain.AuditEvent) error
 }
 
-type CreateDocumentUseCase struct {
-	DocRepo   createDocumentRepo
-	AuditRepo createAuditRepo
-}
-
+// CreateDocumentInput contains the information required to create a document.
 type CreateDocumentInput struct {
 	JVID       string
 	TenantID   string
@@ -32,6 +35,7 @@ type CreateDocumentInput struct {
 	StorageKey string
 }
 
+// Execute creates the document and records an audit event.
 func (u CreateDocumentUseCase) Execute(input CreateDocumentInput) (*domain.Document, error) {
 	doc := domain.Document{
 		ID:         uuid.NewString(),

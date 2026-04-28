@@ -19,11 +19,13 @@ type auditRepo interface {
 	Save(event domain.AuditEvent) error
 }
 
+// DeleteDocumentUseCase handles removing documents and recording an audit event.
 type DeleteDocumentUseCase struct {
 	DocRepo   documentRepo
 	AuditRepo auditRepo
 }
 
+// DeleteDocumentInput contains identifiers required to delete a document.
 type DeleteDocumentInput struct {
 	DocumentID string
 	ActorID    string
@@ -31,6 +33,7 @@ type DeleteDocumentInput struct {
 	RequestID  string
 }
 
+// Execute deletes the document and creates an audit event.
 func (u DeleteDocumentUseCase) Execute(input DeleteDocumentInput) error {
 	if _, err := u.DocRepo.FindByID(input.DocumentID); err != nil {
 		return fmt.Errorf("document not found: %w", err)

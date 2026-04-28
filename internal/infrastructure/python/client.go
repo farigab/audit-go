@@ -1,3 +1,4 @@
+// Package python provides a client to the Python parsing microservice.
 package python
 
 import (
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 )
 
+// ParseResult represents the parsed output returned by the Python service.
 type ParseResult struct {
 	Filename string       `json:"filename"`
 	Pages    int          `json:"pages"`
@@ -18,11 +20,13 @@ type ParseResult struct {
 	Tables   [][][]string `json:"tables"`
 }
 
+// Client is a lightweight client for the Python parsing service.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
 }
 
+// NewClient creates a new Python service client.
 func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL:    baseURL,
@@ -30,6 +34,7 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
+// ParseDocument uploads a file to the Python service and returns the parsed result.
 func (c *Client) ParseDocument(filename string, content []byte) (*ParseResult, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)

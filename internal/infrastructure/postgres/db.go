@@ -1,3 +1,4 @@
+// Package postgres provides helpers for connecting to a Postgres database and basic repositories.
 package postgres
 
 import (
@@ -5,9 +6,10 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/lib/pq"
+	_ "github.com/lib/pq" // register postgres driver
 )
 
+// Connect opens and verifies a connection to Postgres using the provided DSN.
 func Connect(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

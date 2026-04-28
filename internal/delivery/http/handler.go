@@ -1,3 +1,4 @@
+// Package http contains delivery layer HTTP handlers and helpers.
 package http
 
 import (
@@ -11,6 +12,7 @@ import (
 	"audit-go/internal/usecase"
 )
 
+// Handler handles HTTP endpoints for the service.
 type Handler struct {
 	Log            zerolog.Logger
 	createDocument usecase.CreateDocumentUseCase
@@ -18,28 +20,31 @@ type Handler struct {
 	getDocument    usecase.GetDocumentUseCase
 }
 
+// NewHandler creates a new HTTP Handler wired with the provided use cases.
 func NewHandler(
 	log zerolog.Logger,
 	create usecase.CreateDocumentUseCase,
-	delete usecase.DeleteDocumentUseCase,
+	del usecase.DeleteDocumentUseCase,
 	get usecase.GetDocumentUseCase,
 ) Handler {
 	return Handler{
 		Log:            log,
 		createDocument: create,
-		deleteDocument: delete,
+		deleteDocument: del,
 		getDocument:    get,
 	}
 }
 
 const methodNotAllowed = "method not allowed"
 
+// Health responds with a simple liveness check.
 func (h Handler) Health(w http.ResponseWriter, r *http.Request) {
 	if err := WriteText(w, http.StatusOK, "ok"); err != nil {
 		h.logWriteError(r, err)
 	}
 }
 
+// CreateDocument handles POST /documents to create a new document.
 func (h Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		if err := WriteError(w, http.StatusMethodNotAllowed, methodNotAllowed); err != nil {
@@ -91,6 +96,7 @@ func (h Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetDocument handles GET /documents/get to fetch a document by id.
 func (h Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		if err := WriteError(w, http.StatusMethodNotAllowed, methodNotAllowed); err != nil {
@@ -120,6 +126,7 @@ func (h Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteDocument handles DELETE /documents/delete to remove a document by id.
 func (h Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		if err := WriteError(w, http.StatusMethodNotAllowed, "method not allowed"); err != nil {

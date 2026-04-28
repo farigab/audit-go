@@ -10,10 +10,12 @@ type getDocumentRepo interface {
 	FindByID(id string) (*domain.Document, error)
 }
 
+// GetDocumentUseCase fetches a document by id.
 type GetDocumentUseCase struct {
 	DocRepo getDocumentRepo
 }
 
+// Execute retrieves the document from the repository or returns an error.
 func (u GetDocumentUseCase) Execute(id string) (*domain.Document, error) {
 	doc, err := u.DocRepo.FindByID(id)
 	if err != nil {
