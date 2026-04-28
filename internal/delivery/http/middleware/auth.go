@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"audit-go/internal/platform/security"
 )
@@ -24,12 +25,21 @@ func Auth(jwtSvc security.TokenService) func(http.Handler) http.Handler {
 }
 
 func extractValidLogin(jwtSvc security.TokenService, r *http.Request) string {
-	cookie, err := r.Cookie("token")
-	if err != nil || cookie.Value == "" {
+	// Expect the access token in the Authorization header: "Bearer <token>"
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return ""
+	}
+	parts := strings.SplitN(auth, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return ""
+	}
+	token := strings.TrimSpace(parts[1])
+	if token == "" {
 		return ""
 	}
 
-	userLogin, err := jwtSvc.ExtractUserLogin(cookie.Value)
+	userLogin, err := jwtSvc.ExtractUserLogin(token)
 	if err != nil || userLogin == "" {
 		return ""
 	}

@@ -18,7 +18,7 @@ type CookieConfig struct {
 func LoadCookieConfig() *CookieConfig {
 	_ = godotenv.Load()
 
-	cookieSecure := defaultBool(os.Getenv("COOKIE_SECURE"), false)
+	cookieSecure := defaultBool(os.Getenv("COOKIE_SECURE"), true)
 	cookieSameSite := defaultString(os.Getenv("COOKIE_SAME_SITE"), "Lax")
 	cookieDomain := defaultString(os.Getenv("COOKIE_DOMAIN"), "")
 

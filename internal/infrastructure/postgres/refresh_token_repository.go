@@ -3,7 +3,9 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -13,6 +15,12 @@ import (
 
 type RefreshTokenRepository struct {
 	db *sql.DB
+}
+
+// hashToken returns the hex-encoded SHA256 of the provided token.
+func hashToken(t string) string {
+	sum := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(sum[:])
 }
 
 // NewRefreshTokenRepository creates a PostgreSQL refresh token repository.
@@ -30,11 +38,16 @@ func (r *RefreshTokenRepository) Save(
 		VALUES ($1, $2, $3, $4, NOW())
 	`
 
-	_, err := r.db.ExecContext(ctx, query, token.Token, token.UserLogin, token.ExpiresAt, token.Revoked)
+	// Hash the token before persisting so the DB never contains raw values.
+	hashed := hashToken(token.Token)
+	_, err := r.db.ExecContext(ctx, query, hashed, token.UserLogin, token.ExpiresAt, token.Revoked)
 	if err != nil {
 		return nil, fmt.Errorf("saving refresh token: %w", err)
 	}
 
+	// Mutate the provided token to hold the stored (hashed) value to keep
+	// subsequent operations consistent.
+	token.Token = hashed
 	return token, nil
 }
 
@@ -47,23 +60,32 @@ func (r *RefreshTokenRepository) Rotate(
 		return fmt.Errorf("beginning rotation transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// old.Token is expected to already contain the hashed value (returned by FindByToken).
+	hashedOld := old.Token
+	// Hash the new raw token value before inserting.
+	hashedNew := hashToken(new.Token)
 
-	res, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE token = $1`, old.Token)
+	// Mark the old token as revoked instead of deleting it. This allows reuse
+	// detection: a later use of the same (raw) token will find a revoked row.
+	res, err := tx.ExecContext(ctx, `UPDATE refresh_tokens SET revoked = TRUE WHERE token = $1`, hashedOld)
 	if err != nil {
-		return fmt.Errorf("deleting old refresh token: %w", err)
+		return fmt.Errorf("revoking old refresh token: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		// Token was already deleted (concurrent logout); treat as expired.
+		// Token not found; treat as expired/revoked.
 		return errors.New("refresh token not found or already revoked")
 	}
 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (token, user_login, expires_at, revoked, created_at) VALUES ($1, $2, $3, $4, NOW())`,
-		new.Token, new.UserLogin, new.ExpiresAt, new.Revoked,
+		hashedNew, new.UserLogin, new.ExpiresAt, new.Revoked,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting new refresh token: %w", err)
 	}
+
+	// Ensure the new token object reflects the stored (hashed) value.
+	new.Token = hashedNew
 
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("committing rotation transaction: %w", err)
@@ -84,8 +106,11 @@ func (r *RefreshTokenRepository) FindByToken(
 		LIMIT 1
 	`
 
+	// Hash the incoming raw token value before querying the DB.
+	hashed := hashToken(value)
+
 	var token domain.RefreshToken
-	err := r.db.QueryRowContext(ctx, query, value).Scan(
+	err := r.db.QueryRowContext(ctx, query, hashed).Scan(
 		&token.Token, &token.UserLogin, &token.ExpiresAt, &token.Revoked,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -140,9 +165,10 @@ func (r *RefreshTokenRepository) Delete(
 	ctx context.Context,
 	token *domain.RefreshToken,
 ) error {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE token = $1`, token.Token)
+	// Soft-revoke the token so that reuse can be detected and audited.
+	res, err := r.db.ExecContext(ctx, `UPDATE refresh_tokens SET revoked = TRUE WHERE token = $1`, token.Token)
 	if err != nil {
-		return fmt.Errorf("deleting refresh token: %w", err)
+		return fmt.Errorf("revoking refresh token: %w", err)
 	}
 
 	if n, _ := res.RowsAffected(); n == 0 {

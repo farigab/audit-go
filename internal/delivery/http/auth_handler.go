@@ -49,7 +49,7 @@ func NewAuthHandler(
 // Refresh handles POST /auth/refresh.
 // It attempts refresh token rotation and returns basic user info.
 func (h AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	userLogin, err := middleware.RotateRefreshToken(h.cfg, h.jwt, h.userRepo, h.refreshRepo, w, r)
+	userLogin, accessToken, err := middleware.RotateRefreshToken(h.cfg, h.jwt, h.userRepo, h.refreshRepo, w, r)
 	if err != nil {
 		h.log.Warn().Err(err).Msg("refresh: failed to rotate refresh token")
 		return
@@ -59,13 +59,13 @@ func (h AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.log.Warn().Err(err).Msg("refresh: failed to lookup user")
 		// Return minimal info even if name lookup fails
-		if err = WriteJSON(w, http.StatusOK, map[string]string{"login": userLogin}); err != nil {
+		if err = WriteJSON(w, http.StatusOK, map[string]string{"login": userLogin, "accessToken": accessToken}); err != nil {
 			h.logWriteError(r, err)
 		}
 		return
 	}
 
-	if err = WriteJSON(w, http.StatusOK, map[string]string{"login": user.Login, "name": user.Name}); err != nil {
+	if err = WriteJSON(w, http.StatusOK, map[string]string{"login": user.Login, "name": user.Name, "accessToken": accessToken}); err != nil {
 		h.logWriteError(r, err)
 	}
 }
@@ -95,13 +95,15 @@ func (h AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 15-minute access token, 7-day refresh token.
-	cookies.Set(w, "token", out.AccessToken, 15*60, h.cfg)
-	cookies.Set(w, "refreshToken", out.RefreshToken, 7*24*60*60, h.cfg)
+	// 15-minute access token is returned in the response body (frontend
+	// keeps it in memory). The refresh token is stored as a HttpOnly cookie.
+	// Limit refresh token cookie to the refresh endpoint path.
+	cookies.SetWithPath(w, "refreshToken", out.RefreshToken, 7*24*60*60, h.cfg, "/auth/refresh")
 
 	if err = WriteJSON(w, http.StatusOK, map[string]string{
-		"login": out.User.Login,
-		"name":  out.User.Name,
+		"login":       out.User.Login,
+		"name":        out.User.Name,
+		"accessToken": out.AccessToken,
 	}); err != nil {
 		h.logWriteError(r, err)
 	}
