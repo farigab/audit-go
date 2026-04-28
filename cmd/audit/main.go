@@ -38,6 +38,16 @@ func main() {
 	}
 
 	// use cases
+	login := usecase.LoginUseCase{
+		UserRepo:    userRepo,
+		RefreshRepo: refreshRepo,
+		JWT:         jwtSvc,
+	}
+
+	logout := usecase.LogoutUseCase{
+		RefreshRepo: refreshRepo,
+	}
+
 	createDoc := usecase.CreateDocumentUseCase{
 		DocRepo:   docRepo,
 		AuditRepo: auditRepo,
@@ -59,6 +69,8 @@ func main() {
 		JWT:            jwtSvc,
 		UserRepo:       userRepo,
 		RefreshRepo:    refreshRepo,
+		Login:          login,
+		Logout:         logout,
 		CreateDocument: createDoc,
 		DeleteDocument: deleteDoc,
 		GetDocument:    getDoc,
