@@ -10,7 +10,7 @@ import (
 	"audit-go/internal/platform/contextx"
 )
 
-func RequestContext(log zerolog.Logger, next http.Handler) http.Handler {
+func RequestContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := uuid.NewString()
 		userID := r.Header.Get("X-User-ID")

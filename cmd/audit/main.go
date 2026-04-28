@@ -31,8 +31,8 @@ func main() {
 	mux.HandleFunc("/documents/delete", handler.DeleteDocument) // DELETE ?id=
 
 	var app http.Handler = mux
+	app = httpdelivery.RequestContext(app)
 	app = httpdelivery.Logging(log, app)
-	app = httpdelivery.RequestContext(log, app)
 
 	w := worker.New(log)
 	go w.Start()
