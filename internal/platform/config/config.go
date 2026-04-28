@@ -14,7 +14,7 @@ type Config struct {
 	LogLevel         zerolog.Level
 	PythonServiceURL string
 	Port             string
-	AllowedOrigins    string
+	AllowedOrigins   string
 	JWTSecret        string
 }
 
@@ -31,7 +31,6 @@ func Load() *Config {
 	PythonServiceURL := defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000")
 	PORT := defaultString(os.Getenv("PORT"), ":8080")
 	AllowedOrigins := defaultString(os.Getenv("ALLOWED_ORIGINS"), "")
-
 
 	return &Config{
 		DBurl:            PostGreeURL,

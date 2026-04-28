@@ -2,8 +2,8 @@
 package repository
 
 import (
-	"context"
 	"audit-go/internal/domain"
+	"context"
 )
 
 // RefreshTokenRepository defines operations for refresh tokens.

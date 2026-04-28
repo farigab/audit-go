@@ -4,8 +4,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"audit-go/internal/platform/config"
-	"audit-go/internal/repository"
 	"audit-go/internal/platform/security"
+	"audit-go/internal/repository"
 	"audit-go/internal/usecase"
 )
 

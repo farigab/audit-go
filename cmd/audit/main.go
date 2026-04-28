@@ -54,14 +54,14 @@ func main() {
 
 	// router
 	mux := httpdelivery.RegisterRoutes(httpdelivery.Dependencies{
-		Log:             log,
-		Config:          cfgc,
-		JWT:             jwtSvc,
-		UserRepo:        userRepo,
-		RefreshRepo:     refreshRepo,
-		CreateDocument:  createDoc,
-		DeleteDocument:  deleteDoc,
-		GetDocument:     getDoc,
+		Log:            log,
+		Config:         cfgc,
+		JWT:            jwtSvc,
+		UserRepo:       userRepo,
+		RefreshRepo:    refreshRepo,
+		CreateDocument: createDoc,
+		DeleteDocument: deleteDoc,
+		GetDocument:    getDoc,
 	})
 
 	// middleware chain
