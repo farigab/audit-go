@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"audit-go/internal/config"
+	"audit-go/internal/platform/config"
 	"audit-go/internal/platform/logger"
 	"audit-go/internal/worker"
 )

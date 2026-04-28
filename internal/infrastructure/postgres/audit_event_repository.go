@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL repository implementations.
 package postgres
 
 import (
@@ -9,28 +10,38 @@ import (
 	"audit-go/internal/domain"
 )
 
-// AuditEventRepository persists audit events into the database.
 type AuditEventRepository struct {
 	db *sql.DB
 }
 
-// NewAuditEventRepository creates a new audit event repository.
+// NewAuditEventRepository creates a PostgreSQL audit event repository.
 func NewAuditEventRepository(db *sql.DB) *AuditEventRepository {
 	return &AuditEventRepository{db: db}
 }
 
-// Save inserts an audit event into the audit_events table.
-func (r *AuditEventRepository) Save(ctx context.Context, event domain.AuditEvent) error {
+// Save persists an audit event.
+func (r *AuditEventRepository) Save(
+	ctx context.Context,
+	event domain.AuditEvent,
+) error {
 	metadata, err := json.Marshal(event.Metadata)
 	if err != nil {
 		return fmt.Errorf("marshaling metadata: %w", err)
 	}
 
 	query := `
-		INSERT INTO audit_events
-			(id, tenant_id, actor_id, action, target_id, target_type, occurred_at, request_id, metadata)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO audit_events (
+			id,
+			tenant_id,
+			actor_id,
+			action,
+			target_id,
+			target_type,
+			occurred_at,
+			request_id,
+			metadata
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 	`
 
 	_, err = r.db.ExecContext(
@@ -47,16 +58,28 @@ func (r *AuditEventRepository) Save(ctx context.Context, event domain.AuditEvent
 		metadata,
 	)
 	if err != nil {
-		return fmt.Errorf("inserting audit event: %w", err)
+		return fmt.Errorf("saving audit event: %w", err)
 	}
 
 	return nil
 }
 
-// FindByTarget returns audit events for a given target id.
-func (r *AuditEventRepository) FindByTarget(ctx context.Context, targetID string) ([]domain.AuditEvent, error) {
+// FindByTarget returns events by target id.
+func (r *AuditEventRepository) FindByTarget(
+	ctx context.Context,
+	targetID string,
+) ([]domain.AuditEvent, error) {
 	query := `
-		SELECT id, tenant_id, actor_id, action, target_id, target_type, occurred_at, request_id, metadata
+		SELECT
+			id,
+			tenant_id,
+			actor_id,
+			action,
+			target_id,
+			target_type,
+			occurred_at,
+			request_id,
+			metadata
 		FROM audit_events
 		WHERE target_id = $1
 		ORDER BY occurred_at DESC
@@ -71,10 +94,22 @@ func (r *AuditEventRepository) FindByTarget(ctx context.Context, targetID string
 	return scanAuditEvents(rows)
 }
 
-// FindByTenant returns audit events for a given tenant id.
-func (r *AuditEventRepository) FindByTenant(ctx context.Context, tenantID string) ([]domain.AuditEvent, error) {
+// FindByTenant returns events by tenant id.
+func (r *AuditEventRepository) FindByTenant(
+	ctx context.Context,
+	tenantID string,
+) ([]domain.AuditEvent, error) {
 	query := `
-		SELECT id, tenant_id, actor_id, action, target_id, target_type, occurred_at, request_id, metadata
+		SELECT
+			id,
+			tenant_id,
+			actor_id,
+			action,
+			target_id,
+			target_type,
+			occurred_at,
+			request_id,
+			metadata
 		FROM audit_events
 		WHERE tenant_id = $1
 		ORDER BY occurred_at DESC
@@ -90,11 +125,12 @@ func (r *AuditEventRepository) FindByTenant(ctx context.Context, tenantID string
 }
 
 func scanAuditEvents(rows *sql.Rows) ([]domain.AuditEvent, error) {
-	var result []domain.AuditEvent
+	var events []domain.AuditEvent
 
 	for rows.Next() {
 		var event domain.AuditEvent
-		var action, targetType string
+		var action string
+		var targetType string
 		var metadata []byte
 
 		if err := rows.Scan(
@@ -115,16 +151,18 @@ func scanAuditEvents(rows *sql.Rows) ([]domain.AuditEvent, error) {
 		event.TargetType = domain.TargetType(targetType)
 		event.OccurredAt = event.OccurredAt.UTC()
 
-		if err := json.Unmarshal(metadata, &event.Metadata); err != nil {
-			return nil, fmt.Errorf("unmarshaling metadata: %w", err)
+		if len(metadata) > 0 {
+			if err := json.Unmarshal(metadata, &event.Metadata); err != nil {
+				return nil, fmt.Errorf("unmarshaling metadata: %w", err)
+			}
 		}
 
-		result = append(result, event)
+		events = append(events, event)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating audit event rows: %w", err)
 	}
 
-	return result, nil
+	return events, nil
 }

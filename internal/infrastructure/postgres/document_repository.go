@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL repository implementations.
 package postgres
 
 import (
@@ -10,23 +11,30 @@ import (
 	"audit-go/internal/domain"
 )
 
-// DocumentRepository implements persistence operations for documents.
 type DocumentRepository struct {
 	db *sql.DB
 }
 
-// NewDocumentRepository creates a new repository backed by the given DB.
+// NewDocumentRepository creates a new PostgreSQL document repository.
 func NewDocumentRepository(db *sql.DB) *DocumentRepository {
 	return &DocumentRepository{db: db}
 }
 
-// Save inserts or updates a document record.
+// Save inserts or updates a document.
 func (r *DocumentRepository) Save(ctx context.Context, doc domain.Document) error {
 	query := `
-		INSERT INTO documents
-			(id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO documents (
+			id,
+			jv_id,
+			tenant_id,
+			name,
+			type,
+			storage_key,
+			uploaded_by,
+			uploaded_at,
+			processed
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		ON CONFLICT (id) DO UPDATE SET
 			name        = EXCLUDED.name,
 			type        = EXCLUDED.type,
@@ -48,27 +56,53 @@ func (r *DocumentRepository) Save(ctx context.Context, doc domain.Document) erro
 		doc.Processed,
 	)
 	if err != nil {
-		return fmt.Errorf("inserting document: %w", err)
+		return fmt.Errorf("saving document: %w", err)
 	}
 
 	return nil
 }
 
-// FindByID looks up a document by its ID.
-func (r *DocumentRepository) FindByID(ctx context.Context, id string) (*domain.Document, error) {
+// FindByID returns a document by id.
+func (r *DocumentRepository) FindByID(
+	ctx context.Context,
+	id string,
+) (*domain.Document, error) {
 	query := `
-		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
+		SELECT
+			id,
+			jv_id,
+			tenant_id,
+			name,
+			type,
+			storage_key,
+			uploaded_by,
+			uploaded_at,
+			processed
 		FROM documents
 		WHERE id = $1
 	`
+
 	row := r.db.QueryRowContext(ctx, query, id)
+
 	return scanDocument(row)
 }
 
-// FindByJVID returns documents belonging to a joint venture.
-func (r *DocumentRepository) FindByJVID(ctx context.Context, jvID string) ([]domain.Document, error) {
+// FindByJVID returns documents by joint venture id.
+func (r *DocumentRepository) FindByJVID(
+	ctx context.Context,
+	jvID string,
+) ([]domain.Document, error) {
 	query := `
-		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
+		SELECT
+			id,
+			jv_id,
+			tenant_id,
+			name,
+			type,
+			storage_key,
+			uploaded_by,
+			uploaded_at,
+			processed
 		FROM documents
 		WHERE jv_id = $1
 		ORDER BY uploaded_at DESC
@@ -83,10 +117,21 @@ func (r *DocumentRepository) FindByJVID(ctx context.Context, jvID string) ([]dom
 	return scanDocuments(rows)
 }
 
-// FindUnprocessed returns a batch of unprocessed documents.
-func (r *DocumentRepository) FindUnprocessed(ctx context.Context) ([]domain.Document, error) {
+// FindUnprocessed returns pending documents.
+func (r *DocumentRepository) FindUnprocessed(
+	ctx context.Context,
+) ([]domain.Document, error) {
 	query := `
-		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
+		SELECT
+			id,
+			jv_id,
+			tenant_id,
+			name,
+			type,
+			storage_key,
+			uploaded_by,
+			uploaded_at,
+			processed
 		FROM documents
 		WHERE processed = FALSE
 		ORDER BY uploaded_at ASC
@@ -102,9 +147,16 @@ func (r *DocumentRepository) FindUnprocessed(ctx context.Context) ([]domain.Docu
 	return scanDocuments(rows)
 }
 
-// MarkProcessed marks the document as processed.
-func (r *DocumentRepository) MarkProcessed(ctx context.Context, id string) error {
-	query := `UPDATE documents SET processed = TRUE WHERE id = $1`
+// MarkProcessed marks a document as processed.
+func (r *DocumentRepository) MarkProcessed(
+	ctx context.Context,
+	id string,
+) error {
+	query := `
+		UPDATE documents
+		SET processed = TRUE
+		WHERE id = $1
+	`
 
 	_, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
@@ -115,7 +167,10 @@ func (r *DocumentRepository) MarkProcessed(ctx context.Context, id string) error
 }
 
 // Delete removes a document by id.
-func (r *DocumentRepository) Delete(ctx context.Context, id string) error {
+func (r *DocumentRepository) Delete(
+	ctx context.Context,
+	id string,
+) error {
 	query := `DELETE FROM documents WHERE id = $1`
 
 	res, err := r.db.ExecContext(ctx, query, id)
@@ -127,6 +182,7 @@ func (r *DocumentRepository) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("checking rows affected: %w", err)
 	}
+
 	if rows == 0 {
 		return errors.New("document not found")
 	}
@@ -134,7 +190,6 @@ func (r *DocumentRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// scanDocument e scanDocuments evitam repetição de scan em toda query
 func scanDocument(row *sql.Row) (*domain.Document, error) {
 	var doc domain.Document
 	var docType string
@@ -165,7 +220,7 @@ func scanDocument(row *sql.Row) (*domain.Document, error) {
 }
 
 func scanDocuments(rows *sql.Rows) ([]domain.Document, error) {
-	var result []domain.Document
+	var docs []domain.Document
 
 	for rows.Next() {
 		var doc domain.Document
@@ -188,12 +243,13 @@ func scanDocuments(rows *sql.Rows) ([]domain.Document, error) {
 
 		doc.Type = domain.DocType(docType)
 		doc.UploadedAt = uploadedAt.UTC()
-		result = append(result, doc)
+
+		docs = append(docs, doc)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating document rows: %w", err)
 	}
 
-	return result, nil
+	return docs, nil
 }
