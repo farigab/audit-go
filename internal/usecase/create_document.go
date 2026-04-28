@@ -37,7 +37,7 @@ type CreateDocumentInput struct {
 }
 
 // Execute creates the document and records an audit event.
-func (u CreateDocumentUseCase) Execute(input CreateDocumentInput) (*domain.Document, error) {
+func (u CreateDocumentUseCase) Execute(ctx context.Context, input CreateDocumentInput) (*domain.Document, error) {
 	doc := domain.Document{
 		ID:         uuid.NewString(),
 		JVID:       input.JVID,
@@ -50,7 +50,7 @@ func (u CreateDocumentUseCase) Execute(input CreateDocumentInput) (*domain.Docum
 		Processed:  false,
 	}
 
-	if err := u.DocRepo.Save(context.Background(), doc); err != nil {
+	if err := u.DocRepo.Save(ctx, doc); err != nil {
 		return nil, fmt.Errorf("saving document: %w", err)
 	}
 
@@ -64,7 +64,7 @@ func (u CreateDocumentUseCase) Execute(input CreateDocumentInput) (*domain.Docum
 		domain.TargetDocument,
 	)
 
-	if err := u.AuditRepo.Save(context.Background(), event); err != nil {
+	if err := u.AuditRepo.Save(ctx, event); err != nil {
 		return nil, fmt.Errorf("saving audit event: %w", err)
 	}
 

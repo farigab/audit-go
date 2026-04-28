@@ -17,8 +17,8 @@ type GetDocumentUseCase struct {
 }
 
 // Execute retrieves the document from the repository or returns an error.
-func (u GetDocumentUseCase) Execute(id string) (*domain.Document, error) {
-	doc, err := u.DocRepo.FindByID(context.Background(), id)
+func (u GetDocumentUseCase) Execute(ctx context.Context, id string) (*domain.Document, error) {
+	doc, err := u.DocRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("document not found: %w", err)
 	}

@@ -21,7 +21,7 @@ func NewDocumentRepository(db *sql.DB) *DocumentRepository {
 }
 
 // Save inserts or updates a document record.
-func (r *DocumentRepository) Save(doc domain.Document) error {
+func (r *DocumentRepository) Save(ctx context.Context, doc domain.Document) error {
 	query := `
 		INSERT INTO documents
 			(id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed)
@@ -35,7 +35,7 @@ func (r *DocumentRepository) Save(doc domain.Document) error {
 	`
 
 	_, err := r.db.ExecContext(
-		context.Background(),
+		ctx,
 		query,
 		doc.ID,
 		doc.JVID,
@@ -55,19 +55,18 @@ func (r *DocumentRepository) Save(doc domain.Document) error {
 }
 
 // FindByID looks up a document by its ID.
-func (r *DocumentRepository) FindByID(id string) (*domain.Document, error) {
+func (r *DocumentRepository) FindByID(ctx context.Context, id string) (*domain.Document, error) {
 	query := `
 		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
 		FROM documents
 		WHERE id = $1
 	`
-
-	row := r.db.QueryRowContext(context.Background(), query, id)
+	row := r.db.QueryRowContext(ctx, query, id)
 	return scanDocument(row)
 }
 
 // FindByJVID returns documents belonging to a joint venture.
-func (r *DocumentRepository) FindByJVID(jvID string) ([]domain.Document, error) {
+func (r *DocumentRepository) FindByJVID(ctx context.Context, jvID string) ([]domain.Document, error) {
 	query := `
 		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
 		FROM documents
@@ -75,7 +74,7 @@ func (r *DocumentRepository) FindByJVID(jvID string) ([]domain.Document, error) 
 		ORDER BY uploaded_at DESC
 	`
 
-	rows, err := r.db.QueryContext(context.Background(), query, jvID)
+	rows, err := r.db.QueryContext(ctx, query, jvID)
 	if err != nil {
 		return nil, fmt.Errorf("querying documents by jv_id: %w", err)
 	}
@@ -85,7 +84,7 @@ func (r *DocumentRepository) FindByJVID(jvID string) ([]domain.Document, error) 
 }
 
 // FindUnprocessed returns a batch of unprocessed documents.
-func (r *DocumentRepository) FindUnprocessed() ([]domain.Document, error) {
+func (r *DocumentRepository) FindUnprocessed(ctx context.Context) ([]domain.Document, error) {
 	query := `
 		SELECT id, jv_id, tenant_id, name, type, storage_key, uploaded_by, uploaded_at, processed
 		FROM documents
@@ -94,7 +93,7 @@ func (r *DocumentRepository) FindUnprocessed() ([]domain.Document, error) {
 		LIMIT 10
 	`
 
-	rows, err := r.db.QueryContext(context.Background(), query)
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("querying unprocessed documents: %w", err)
 	}
@@ -104,10 +103,10 @@ func (r *DocumentRepository) FindUnprocessed() ([]domain.Document, error) {
 }
 
 // MarkProcessed marks the document as processed.
-func (r *DocumentRepository) MarkProcessed(id string) error {
+func (r *DocumentRepository) MarkProcessed(ctx context.Context, id string) error {
 	query := `UPDATE documents SET processed = TRUE WHERE id = $1`
 
-	_, err := r.db.ExecContext(context.Background(), query, id)
+	_, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("marking document as processed: %w", err)
 	}
@@ -116,10 +115,10 @@ func (r *DocumentRepository) MarkProcessed(id string) error {
 }
 
 // Delete removes a document by id.
-func (r *DocumentRepository) Delete(id string) error {
+func (r *DocumentRepository) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM documents WHERE id = $1`
 
-	res, err := r.db.ExecContext(context.Background(), query, id)
+	res, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("deleting document: %w", err)
 	}

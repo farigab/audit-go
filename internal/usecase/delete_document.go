@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -11,12 +12,12 @@ import (
 // interfaces mínimas — só o que este usecase precisa
 // não existe uma interface global de "tudo que um repo de documento faz"
 type documentRepo interface {
-	FindByID(id string) (*domain.Document, error)
-	Delete(id string) error
+	FindByID(ctx context.Context, id string) (*domain.Document, error)
+	Delete(ctx context.Context, id string) error
 }
 
 type auditRepo interface {
-	Save(event domain.AuditEvent) error
+	Save(ctx context.Context, event domain.AuditEvent) error
 }
 
 // DeleteDocumentUseCase handles removing documents and recording an audit event.
@@ -34,12 +35,12 @@ type DeleteDocumentInput struct {
 }
 
 // Execute deletes the document and creates an audit event.
-func (u DeleteDocumentUseCase) Execute(input DeleteDocumentInput) error {
-	if _, err := u.DocRepo.FindByID(input.DocumentID); err != nil {
+func (u DeleteDocumentUseCase) Execute(ctx context.Context, input DeleteDocumentInput) error {
+	if _, err := u.DocRepo.FindByID(ctx, input.DocumentID); err != nil {
 		return fmt.Errorf("document not found: %w", err)
 	}
 
-	if err := u.DocRepo.Delete(input.DocumentID); err != nil {
+	if err := u.DocRepo.Delete(ctx, input.DocumentID); err != nil {
 		return fmt.Errorf("deleting document: %w", err)
 	}
 
@@ -53,7 +54,7 @@ func (u DeleteDocumentUseCase) Execute(input DeleteDocumentInput) error {
 		domain.TargetDocument,
 	)
 
-	if err := u.AuditRepo.Save(event); err != nil {
+	if err := u.AuditRepo.Save(ctx, event); err != nil {
 		return fmt.Errorf("saving audit event: %w", err)
 	}
 

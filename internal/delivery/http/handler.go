@@ -75,7 +75,7 @@ func (h Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	doc, err := h.createDocument.Execute(usecase.CreateDocumentInput{
+	doc, err := h.createDocument.Execute(ctx, usecase.CreateDocumentInput{
 		JVID:       body.JVID,
 		TenantID:   contextx.Get(ctx, contextx.TenantIDKey),
 		ActorID:    contextx.Get(ctx, contextx.UserIDKey),
@@ -113,7 +113,8 @@ func (h Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc, err := h.getDocument.Execute(documentID)
+	ctx := r.Context()
+	doc, err := h.getDocument.Execute(ctx, documentID)
 	if err != nil {
 		if werr := WriteError(w, http.StatusNotFound, "document not found"); werr != nil {
 			h.logWriteError(r, werr)
@@ -144,7 +145,7 @@ func (h Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	if err := h.deleteDocument.Execute(usecase.DeleteDocumentInput{
+	if err := h.deleteDocument.Execute(ctx, usecase.DeleteDocumentInput{
 		DocumentID: documentID,
 		ActorID:    contextx.Get(ctx, contextx.UserIDKey),
 		TenantID:   contextx.Get(ctx, contextx.TenantIDKey),

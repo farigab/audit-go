@@ -20,7 +20,7 @@ func NewAuditEventRepository(db *sql.DB) *AuditEventRepository {
 }
 
 // Save inserts an audit event into the audit_events table.
-func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
+func (r *AuditEventRepository) Save(ctx context.Context, event domain.AuditEvent) error {
 	metadata, err := json.Marshal(event.Metadata)
 	if err != nil {
 		return fmt.Errorf("marshaling metadata: %w", err)
@@ -34,7 +34,7 @@ func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
 	`
 
 	_, err = r.db.ExecContext(
-		context.Background(),
+		ctx,
 		query,
 		event.ID,
 		event.TenantID,
@@ -54,7 +54,7 @@ func (r *AuditEventRepository) Save(event domain.AuditEvent) error {
 }
 
 // FindByTarget returns audit events for a given target id.
-func (r *AuditEventRepository) FindByTarget(targetID string) ([]domain.AuditEvent, error) {
+func (r *AuditEventRepository) FindByTarget(ctx context.Context, targetID string) ([]domain.AuditEvent, error) {
 	query := `
 		SELECT id, tenant_id, actor_id, action, target_id, target_type, occurred_at, request_id, metadata
 		FROM audit_events
@@ -62,7 +62,7 @@ func (r *AuditEventRepository) FindByTarget(targetID string) ([]domain.AuditEven
 		ORDER BY occurred_at DESC
 	`
 
-	rows, err := r.db.QueryContext(context.Background(), query, targetID)
+	rows, err := r.db.QueryContext(ctx, query, targetID)
 	if err != nil {
 		return nil, fmt.Errorf("querying audit events by target: %w", err)
 	}
@@ -72,7 +72,7 @@ func (r *AuditEventRepository) FindByTarget(targetID string) ([]domain.AuditEven
 }
 
 // FindByTenant returns audit events for a given tenant id.
-func (r *AuditEventRepository) FindByTenant(tenantID string) ([]domain.AuditEvent, error) {
+func (r *AuditEventRepository) FindByTenant(ctx context.Context, tenantID string) ([]domain.AuditEvent, error) {
 	query := `
 		SELECT id, tenant_id, actor_id, action, target_id, target_type, occurred_at, request_id, metadata
 		FROM audit_events
@@ -80,7 +80,7 @@ func (r *AuditEventRepository) FindByTenant(tenantID string) ([]domain.AuditEven
 		ORDER BY occurred_at DESC
 	`
 
-	rows, err := r.db.QueryContext(context.Background(), query, tenantID)
+	rows, err := r.db.QueryContext(ctx, query, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("querying audit events by tenant: %w", err)
 	}
