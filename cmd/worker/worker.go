@@ -5,12 +5,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"audit-go/internal/config"
 	"audit-go/internal/platform/logger"
 	"audit-go/internal/worker"
 )
 
 func main() {
-	log := logger.New() // JSON puro em produção, sem pretty
+	cfg := config.Load()
+	log := logger.NewWithLevel(cfg.LogLevel)
 
 	w := worker.New(log)
 

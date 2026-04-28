@@ -8,16 +8,7 @@ import (
 )
 
 func level() zerolog.Level {
-	switch os.Getenv("LOG_LEVEL") {
-	case "debug":
-		return zerolog.DebugLevel
-	case "warn":
-		return zerolog.WarnLevel
-	case "error":
-		return zerolog.ErrorLevel
-	default:
-		return zerolog.InfoLevel
-	}
+	return zerolog.InfoLevel
 }
 
 func New() zerolog.Logger {
@@ -29,6 +20,10 @@ func New() zerolog.Logger {
 }
 
 func NewPretty() zerolog.Logger {
+	return NewPrettyWithLevel(level())
+}
+
+func NewPrettyWithLevel(lvl zerolog.Level) zerolog.Logger {
 	return zerolog.New(
 		zerolog.ConsoleWriter{
 			Out:        os.Stdout,
@@ -37,5 +32,13 @@ func NewPretty() zerolog.Logger {
 	).With().
 		Timestamp().
 		Logger().
-		Level(level())
+		Level(lvl)
+}
+
+func NewWithLevel(lvl zerolog.Level) zerolog.Logger {
+	return zerolog.New(os.Stdout).
+		With().
+		Timestamp().
+		Logger().
+		Level(lvl)
 }

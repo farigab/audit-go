@@ -2,9 +2,10 @@ package main
 
 import (
 	"net/http"
-	"os"
 
+	"audit-go/internal/config"
 	httpdelivery "audit-go/internal/delivery/http"
+	"audit-go/internal/infrastructure/memory"
 	"audit-go/internal/infrastructure/postgres"
 	"audit-go/internal/platform/logger"
 	"audit-go/internal/usecase"
@@ -12,9 +13,10 @@ import (
 )
 
 func main() {
-	log := logger.NewPretty()
+	cfg := config.Load()
+	log := logger.NewPrettyWithLevel(cfg.LogLevel)
 
-	dsn := envOr("POSTGRES_DSN", "postgres://audit:audit@localhost:5432/auditdb?sslmode=disable")
+	dsn := cfg.DBurl
 
 	db, err := postgres.Connect(dsn)
 	if err != nil {
@@ -32,6 +34,11 @@ func main() {
 	)
 
 	mux := http.NewServeMux()
+
+	// register auth routes (minimal)
+	refreshRepo := memory.NewRefreshTokenRepo()
+	httpdelivery.RegisterAuthRoutes(mux, refreshRepo)
+
 	mux.HandleFunc("/health", handler.Health)
 	mux.HandleFunc("/documents", handler.CreateDocument)        // POST
 	mux.HandleFunc("/documents/get", handler.GetDocument)       // GET  ?id=
@@ -44,17 +51,10 @@ func main() {
 	w := worker.New(log)
 	go w.Start()
 
-	addr := envOr("ADDR", ":8080")
+	addr := cfg.Port
 	log.Info().Str("addr", addr).Msg("server started")
 
 	if err := http.ListenAndServe(addr, app); err != nil {
 		log.Fatal().Err(err).Msg("server failed")
 	}
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

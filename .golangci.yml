@@ -1,21 +1,34 @@
 run:
   timeout: 5m
+  tests: true
 
 linters:
   enable:
-    - errcheck
     - govet
+    - errcheck
     - staticcheck
+    - goimports
     - ineffassign
-    - unused
-    - gosimple
+    - typecheck
+    - gocyclo
     - revive
 
 linters-settings:
-  revive:
-    rules:
-      - name: exported
-        disabled: true
+  gocyclo:
+    min-complexity: 15
+  errcheck:
+    check-type-assertions: true
+    exclude-functions:
+      - "w.Write"
+      - "(*json.Encoder).Encode"
+      - "(*json.Decoder).Decode"
+  goimports:
+    local-prefixes: audit-go
 
 issues:
   exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-dirs:
+    - vendor
+    - generated
