@@ -19,14 +19,14 @@ Audit platform for Joint Ventures. Manages document ingestion (PDF/XLSX), AI-pow
 │  · File upload → S3/MinIO               │
 └────────┬─────────────────┬──────────────┘
          │ HTTP             │ SQL
-┌────────▼────────┐  ┌──────▼─────────────┐
+┌────────▼────────┐  ┌──────▼──────────────┐
 │ Python Service  │  │    PostgreSQL       │
 │  (FastAPI)      │  │    + pgvector       │
 │  · Parse PDF    │  │    · documents      │
 │  · Parse Excel  │  │    · audit_events   │
 │  · OCR          │  │    · embeddings     │
 │  · Embeddings   │  │    · joint_ventures │
-│  · Chat / RAG   │  └────────────────────┘
+│  · Chat / RAG   │  └─────────────────────┘
 └─────────────────┘
 ```
 
