@@ -2,6 +2,7 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -17,11 +18,11 @@ type CreateDocumentUseCase struct {
 }
 
 type createDocumentRepo interface {
-	Save(doc domain.Document) error
+	Save(ctx context.Context, doc domain.Document) error
 }
 
 type createAuditRepo interface {
-	Save(event domain.AuditEvent) error
+	Save(ctx context.Context, event domain.AuditEvent) error
 }
 
 // CreateDocumentInput contains the information required to create a document.
@@ -49,7 +50,7 @@ func (u CreateDocumentUseCase) Execute(input CreateDocumentInput) (*domain.Docum
 		Processed:  false,
 	}
 
-	if err := u.DocRepo.Save(doc); err != nil {
+	if err := u.DocRepo.Save(context.Background(), doc); err != nil {
 		return nil, fmt.Errorf("saving document: %w", err)
 	}
 
@@ -63,7 +64,7 @@ func (u CreateDocumentUseCase) Execute(input CreateDocumentInput) (*domain.Docum
 		domain.TargetDocument,
 	)
 
-	if err := u.AuditRepo.Save(event); err != nil {
+	if err := u.AuditRepo.Save(context.Background(), event); err != nil {
 		return nil, fmt.Errorf("saving audit event: %w", err)
 	}
 

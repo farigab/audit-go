@@ -14,12 +14,10 @@ import (
 func RequestContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := uuid.NewString()
-		userID := r.Header.Get("X-User-ID")
 		tenantID := r.Header.Get("X-Tenant-ID")
 
 		ctx := r.Context()
 		ctx = contextx.Set(ctx, contextx.RequestIDKey, requestID)
-		ctx = contextx.Set(ctx, contextx.UserIDKey, userID)
 		ctx = contextx.Set(ctx, contextx.TenantIDKey, tenantID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -55,5 +53,22 @@ func Logging(log zerolog.Logger, next http.Handler) http.Handler {
 			Int("status", rw.status).
 			Int64("duration_us", time.Since(start).Microseconds()).
 			Msg("http request")
+	})
+}
+
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("token")
+		if err != nil || cookie.Value == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// TEMP: enquanto não usa JWT
+		userID := cookie.Value
+
+		ctx := contextx.Set(r.Context(), contextx.UserIDKey, userID)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

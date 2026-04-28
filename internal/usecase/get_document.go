@@ -1,13 +1,14 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
 
 	"audit-go/internal/domain"
 )
 
 type getDocumentRepo interface {
-	FindByID(id string) (*domain.Document, error)
+	FindByID(ctx context.Context, id string) (*domain.Document, error)
 }
 
 // GetDocumentUseCase fetches a document by id.
@@ -17,7 +18,7 @@ type GetDocumentUseCase struct {
 
 // Execute retrieves the document from the repository or returns an error.
 func (u GetDocumentUseCase) Execute(id string) (*domain.Document, error) {
-	doc, err := u.DocRepo.FindByID(id)
+	doc, err := u.DocRepo.FindByID(context.Background(), id)
 	if err != nil {
 		return nil, fmt.Errorf("document not found: %w", err)
 	}
