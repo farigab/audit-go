@@ -11,11 +11,11 @@ import (
 )
 
 type ParseResult struct {
-    Filename string       `json:"filename"`
-    Pages    int          `json:"pages"`
-    Text     string       `json:"text"`
-    Markdown string       `json:"markdown"`
-    Tables   [][][]string `json:"tables"`
+	Filename string       `json:"filename"`
+	Pages    int          `json:"pages"`
+	Text     string       `json:"text"`
+	Markdown string       `json:"markdown"`
+	Tables   [][][]string `json:"tables"`
 }
 
 type Client struct {

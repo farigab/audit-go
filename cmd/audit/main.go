@@ -5,7 +5,7 @@ import (
 	"os"
 
 	httpdelivery "audit-go/internal/delivery/http"
-	"audit-go/internal/infrastructure/memory"
+	"audit-go/internal/infrastructure/postgres"
 	"audit-go/internal/platform/logger"
 	"audit-go/internal/usecase"
 	"audit-go/internal/worker"
@@ -14,8 +14,15 @@ import (
 func main() {
 	log := logger.NewPretty()
 
-	docRepo := memory.NewDocumentRepository()
-	auditRepo := memory.NewAuditEventRepository()
+	dsn := envOr("POSTGRES_DSN", "postgres://audit:audit@localhost:5432/auditdb?sslmode=disable")
+
+	db, err := postgres.Connect(dsn)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to connect to postgres")
+	}
+
+	docRepo := postgres.NewDocumentRepository(db)
+	auditRepo := postgres.NewAuditEventRepository(db)
 
 	handler := httpdelivery.NewHandler(
 		log,
