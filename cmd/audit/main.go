@@ -14,7 +14,7 @@ import (
 func main() {
 	log := logger.NewPretty()
 
-	docRepo   := memory.NewDocumentRepository()
+	docRepo := memory.NewDocumentRepository()
 	auditRepo := memory.NewAuditEventRepository()
 
 	handler := httpdelivery.NewHandler(
@@ -25,14 +25,14 @@ func main() {
 	)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health",           handler.Health)
-	mux.HandleFunc("/documents",        handler.CreateDocument) // POST
-	mux.HandleFunc("/documents/get",    handler.GetDocument)    // GET  ?id=
+	mux.HandleFunc("/health", handler.Health)
+	mux.HandleFunc("/documents", handler.CreateDocument)        // POST
+	mux.HandleFunc("/documents/get", handler.GetDocument)       // GET  ?id=
 	mux.HandleFunc("/documents/delete", handler.DeleteDocument) // DELETE ?id=
 
 	var app http.Handler = mux
-	app = httpdelivery.RequestContext(log, app)
 	app = httpdelivery.Logging(log, app)
+	app = httpdelivery.RequestContext(log, app)
 
 	w := worker.New(log)
 	go w.Start()
