@@ -88,10 +88,6 @@ func RotateRefreshToken(
 				if v == "" {
 					continue
 				}
-				if v == "*" {
-					ok = true
-					break
-				}
 				// Accept either full URL or host[:port]
 				var aHost string
 				if strings.Contains(v, "://") {
