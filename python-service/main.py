@@ -1,13 +1,3 @@
-from fastapi import FastAPI, UploadFile, HTTPException
-from processors.pdf import parse_pdf
-from processors.excel import parse_excel
-
-app = FastAPI(title="audit-python-service")
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
 @app.post("/parse")
 async def parse_document(file: UploadFile):
     content = await file.read()
@@ -24,5 +14,6 @@ async def parse_document(file: UploadFile):
         "filename": name,
         "pages":    result.get("pages"),
         "text":     result.get("text"),
+        "markdown": result.get("markdown"),  # ← campo novo
         "tables":   result.get("tables", []),
     }
