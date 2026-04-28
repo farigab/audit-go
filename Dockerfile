@@ -10,7 +10,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-s -w" \
     -o /app/server \
-    ./cmd/api
+    ./cmd/audit
 
 FROM alpine:3.19
 
