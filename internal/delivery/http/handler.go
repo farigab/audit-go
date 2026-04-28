@@ -77,7 +77,6 @@ func (h Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	doc, err := h.createDocument.Execute(ctx, usecase.CreateDocumentInput{
 		JVID:       body.JVID,
-		TenantID:   contextx.Get(ctx, contextx.TenantIDKey),
 		ActorID:    contextx.Get(ctx, contextx.UserIDKey),
 		RequestID:  contextx.Get(ctx, contextx.RequestIDKey),
 		Name:       body.Name,
@@ -148,7 +147,6 @@ func (h Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	if err := h.deleteDocument.Execute(ctx, usecase.DeleteDocumentInput{
 		DocumentID: documentID,
 		ActorID:    contextx.Get(ctx, contextx.UserIDKey),
-		TenantID:   contextx.Get(ctx, contextx.TenantIDKey),
 		RequestID:  contextx.Get(ctx, contextx.RequestIDKey),
 	}); err != nil {
 		if werr := WriteError(w, http.StatusNotFound, err.Error()); werr != nil {

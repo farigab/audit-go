@@ -32,7 +32,6 @@ func (r *AuditEventRepository) Save(
 	query := `
 		INSERT INTO audit_events (
 			id,
-			tenant_id,
 			actor_id,
 			action,
 			target_id,
@@ -41,14 +40,13 @@ func (r *AuditEventRepository) Save(
 			request_id,
 			metadata
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 	`
 
 	_, err = r.db.ExecContext(
 		ctx,
 		query,
 		event.ID,
-		event.TenantID,
 		event.ActorID,
 		string(event.Action),
 		event.TargetID,
@@ -72,7 +70,6 @@ func (r *AuditEventRepository) FindByTarget(
 	query := `
 		SELECT
 			id,
-			tenant_id,
 			actor_id,
 			action,
 			target_id,
@@ -94,36 +91,6 @@ func (r *AuditEventRepository) FindByTarget(
 	return scanAuditEvents(rows)
 }
 
-// FindByTenant returns events by tenant id.
-func (r *AuditEventRepository) FindByTenant(
-	ctx context.Context,
-	tenantID string,
-) ([]domain.AuditEvent, error) {
-	query := `
-		SELECT
-			id,
-			tenant_id,
-			actor_id,
-			action,
-			target_id,
-			target_type,
-			occurred_at,
-			request_id,
-			metadata
-		FROM audit_events
-		WHERE tenant_id = $1
-		ORDER BY occurred_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("querying audit events by tenant: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	return scanAuditEvents(rows)
-}
-
 func scanAuditEvents(rows *sql.Rows) ([]domain.AuditEvent, error) {
 	var events []domain.AuditEvent
 
@@ -135,7 +102,6 @@ func scanAuditEvents(rows *sql.Rows) ([]domain.AuditEvent, error) {
 
 		if err := rows.Scan(
 			&event.ID,
-			&event.TenantID,
 			&event.ActorID,
 			&action,
 			&event.TargetID,

@@ -26,7 +26,6 @@ func (r *DocumentRepository) Save(ctx context.Context, doc domain.Document) erro
 		INSERT INTO documents (
 			id,
 			jv_id,
-			tenant_id,
 			name,
 			type,
 			storage_key,
@@ -47,7 +46,6 @@ func (r *DocumentRepository) Save(ctx context.Context, doc domain.Document) erro
 		query,
 		doc.ID,
 		doc.JVID,
-		doc.TenantID,
 		doc.Name,
 		string(doc.Type),
 		doc.StorageKey,
@@ -71,7 +69,6 @@ func (r *DocumentRepository) FindByID(
 		SELECT
 			id,
 			jv_id,
-			tenant_id,
 			name,
 			type,
 			storage_key,
@@ -96,7 +93,6 @@ func (r *DocumentRepository) FindByJVID(
 		SELECT
 			id,
 			jv_id,
-			tenant_id,
 			name,
 			type,
 			storage_key,
@@ -125,7 +121,6 @@ func (r *DocumentRepository) FindUnprocessed(
 		SELECT
 			id,
 			jv_id,
-			tenant_id,
 			name,
 			type,
 			storage_key,
@@ -198,7 +193,6 @@ func scanDocument(row *sql.Row) (*domain.Document, error) {
 	err := row.Scan(
 		&doc.ID,
 		&doc.JVID,
-		&doc.TenantID,
 		&doc.Name,
 		&docType,
 		&doc.StorageKey,
@@ -230,7 +224,6 @@ func scanDocuments(rows *sql.Rows) ([]domain.Document, error) {
 		if err := rows.Scan(
 			&doc.ID,
 			&doc.JVID,
-			&doc.TenantID,
 			&doc.Name,
 			&docType,
 			&doc.StorageKey,

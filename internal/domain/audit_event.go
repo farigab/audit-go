@@ -31,7 +31,6 @@ const (
 // Representa um fato que aconteceu no sistema — não pode ser desfeito.
 type AuditEvent struct {
 	ID         string            `json:"id"`
-	TenantID   string            `json:"tenant_id"`
 	ActorID    string            `json:"actor_id"` // user_id de quem fez a ação
 	Action     Action            `json:"action"`
 	TargetID   string            `json:"target_id"` // id da entidade afetada
@@ -43,14 +42,13 @@ type AuditEvent struct {
 
 // NewAuditEvent é a única forma de criar um evento — sem construtor alternativo.
 func NewAuditEvent(
-	id, tenantID, actorID, requestID string,
+	id, actorID, requestID string,
 	action Action,
 	targetID string,
 	targetType TargetType,
 ) AuditEvent {
 	return AuditEvent{
 		ID:         id,
-		TenantID:   tenantID,
 		ActorID:    actorID,
 		Action:     action,
 		TargetID:   targetID,

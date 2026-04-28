@@ -215,8 +215,6 @@ Supported file types: `.pdf`, `.xlsx`, `.xls`.
 
 **pgvector for embeddings** — document chunks are stored alongside business data in the same Postgres instance. Avoids an extra vector DB for the current scale. The `VectorStore` protocol in Python makes it easy to swap to Chroma or Qdrant later.
 
-**Multi-tenancy via headers** — `X-Tenant-ID` and `X-User-ID` are injected into context by the `RequestContext` middleware and propagated through every use case and audit event. No tenant leakage is possible as long as queries always include `tenant_id`.
-
 ---
 
 ## Development
@@ -254,7 +252,6 @@ uvicorn main:app --reload --port 8000
 - [ ] S3/MinIO integration — actual file storage (currently only `storage_key` is tracked)
 - [ ] JointVenture CRUD endpoints
 - [ ] Authentication middleware (JWT / API key)
-- [ ] Pagination on `FindByTenant` and `FindByJVID`
 - [ ] Graceful shutdown for HTTP server
 - [ ] `pgvector` implementation of `VectorStore` protocol
 - [ ] Migration runner (replace manual `psql` calls)

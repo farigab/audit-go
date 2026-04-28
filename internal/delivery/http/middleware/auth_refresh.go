@@ -85,7 +85,6 @@ func rotateRefreshToken(
 
 	jwtToken, err := jwtSvc.GenerateToken(user.Login, map[string]interface{}{
 		"name":   user.Name,
-		"tenant": "default",
 	})
 	if err != nil {
 		http.Error(w, "failed to generate token", http.StatusBadGateway)

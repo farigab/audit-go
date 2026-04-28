@@ -30,7 +30,6 @@ type DeleteDocumentUseCase struct {
 type DeleteDocumentInput struct {
 	DocumentID string
 	ActorID    string
-	TenantID   string
 	RequestID  string
 }
 
@@ -46,7 +45,6 @@ func (u DeleteDocumentUseCase) Execute(ctx context.Context, input DeleteDocument
 
 	event := domain.NewAuditEvent(
 		uuid.NewString(),
-		input.TenantID,
 		input.ActorID,
 		input.RequestID,
 		domain.ActionDocumentDeleted,

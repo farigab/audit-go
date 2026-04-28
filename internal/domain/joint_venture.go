@@ -19,7 +19,6 @@ const (
 // JointVenture represents a collaboration between parties.
 type JointVenture struct {
 	ID        string            `json:"id"`
-	TenantID  string            `json:"tenant_id"`
 	Name      string            `json:"name"`
 	Parties   []string          `json:"parties"`
 	Status    JVStatus          `json:"status"`
@@ -30,7 +29,7 @@ type JointVenture struct {
 }
 
 // NewJointVenture creates a new JointVenture, validating required fields.
-func NewJointVenture(id, tenantID, name, createdBy string, parties []string) (JointVenture, error) {
+func NewJointVenture(id, name, createdBy string, parties []string) (JointVenture, error) {
 	if name == "" {
 		return JointVenture{}, errors.New("joint venture name is required")
 	}
@@ -42,7 +41,6 @@ func NewJointVenture(id, tenantID, name, createdBy string, parties []string) (Jo
 
 	return JointVenture{
 		ID:        id,
-		TenantID:  tenantID,
 		Name:      name,
 		Parties:   parties,
 		Status:    JVStatusDraft,

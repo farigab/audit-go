@@ -48,7 +48,6 @@ func Logging(log zerolog.Logger) func(http.Handler) http.Handler {
 			log.Info().
 				Str("request_id", contextx.Get(ctx, contextx.RequestIDKey)).
 				Str("user_id", contextx.Get(ctx, contextx.UserIDKey)).
-				Str("tenant_id", contextx.Get(ctx, contextx.TenantIDKey)).
 				Str("method", r.Method).
 				Str("path", r.URL.Path).
 				Str("query", r.URL.RawQuery).

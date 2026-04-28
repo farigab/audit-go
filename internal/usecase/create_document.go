@@ -28,7 +28,6 @@ type createAuditRepo interface {
 // CreateDocumentInput contains the information required to create a document.
 type CreateDocumentInput struct {
 	JVID       string
-	TenantID   string
 	ActorID    string
 	RequestID  string
 	Name       string
@@ -41,7 +40,6 @@ func (u CreateDocumentUseCase) Execute(ctx context.Context, input CreateDocument
 	doc := domain.Document{
 		ID:         uuid.NewString(),
 		JVID:       input.JVID,
-		TenantID:   input.TenantID,
 		Name:       input.Name,
 		Type:       input.Type,
 		StorageKey: input.StorageKey,
@@ -56,7 +54,6 @@ func (u CreateDocumentUseCase) Execute(ctx context.Context, input CreateDocument
 
 	event := domain.NewAuditEvent(
 		uuid.NewString(),
-		input.TenantID,
 		input.ActorID,
 		input.RequestID,
 		domain.ActionDocumentUploaded,

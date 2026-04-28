@@ -1,7 +1,6 @@
 CREATE TABLE IF NOT EXISTS documents (
     id          UUID PRIMARY KEY,
     jv_id       UUID NOT NULL REFERENCES joint_ventures(id) ON DELETE CASCADE,
-    tenant_id   UUID NOT NULL,
     name        TEXT NOT NULL,
     type        TEXT NOT NULL DEFAULT 'other',
     storage_key TEXT NOT NULL,
@@ -11,5 +10,4 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 CREATE INDEX idx_documents_jv_id     ON documents(jv_id);
-CREATE INDEX idx_documents_tenant_id ON documents(tenant_id);
 CREATE INDEX idx_documents_processed ON documents(processed) WHERE processed = FALSE;

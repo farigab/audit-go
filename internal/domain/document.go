@@ -17,7 +17,6 @@ const (
 type Document struct {
 	ID         string    `json:"id"`
 	JVID       string    `json:"jv_id"`
-	TenantID   string    `json:"tenant_id"`
 	Name       string    `json:"name"`
 	Type       DocType   `json:"type"`
 	StorageKey string    `json:"storage_key"`
