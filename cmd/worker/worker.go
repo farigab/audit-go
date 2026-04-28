@@ -2,7 +2,7 @@
 package main
 
 import (
-	"os"
+	"context"
 	"os/signal"
 	"syscall"
 
@@ -15,15 +15,9 @@ func main() {
 	cfg := config.Load()
 	log := logger.NewWithLevel(cfg.LogLevel)
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
 	w := worker.New(log)
-
-	// roda em goroutine para não bloquear o signal handler
-	go w.Start()
-
-	// aguarda SIGTERM ou SIGINT para desligar graciosamente
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-	<-quit
-
-	log.Info().Msg("worker shutting down")
+	w.Start(ctx) // blocks until ctx is cancelled
 }

@@ -105,20 +105,3 @@ func (s *JWTService) IsExpired(tokenStr string) bool {
 	}
 	return true
 }
-
-// ExtractUserLoginSafe returns the login claim even when the token failed
-// validation (e.g. expired). Used in logout-like paths where we need the
-// identity but do not require a valid signature.
-func (s *JWTService) ExtractUserLoginSafe(tokenStr string) (string, error) {
-	claims, err := s.parseToken(tokenStr)
-	if claims == nil {
-		return "", err
-	}
-	if login, ok := claims["login"].(string); ok && login != "" {
-		return login, nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return "", errors.New("login claim missing")
-}

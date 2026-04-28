@@ -1,9 +1,16 @@
 // Package worker contains background workers used by the service.
 package worker
 
-import "github.com/rs/zerolog"
+import (
+	"context"
+	"time"
 
-// FileWorker processes files in the background.
+	"github.com/rs/zerolog"
+)
+
+const pollInterval = 30 * time.Second
+
+// FileWorker polls for unprocessed documents and sends them to the Python service.
 type FileWorker struct {
 	Log zerolog.Logger
 }
@@ -13,8 +20,28 @@ func New(log zerolog.Logger) *FileWorker {
 	return &FileWorker{Log: log}
 }
 
-// Start blocks and runs the worker loop — call in a goroutine if needed.
-func (w *FileWorker) Start() {
+// Start runs the worker loop until ctx is cancelled.
+// Call in a goroutine; it returns cleanly on cancellation.
+func (w *FileWorker) Start(ctx context.Context) {
 	w.Log.Info().Msg("file worker started")
-	// aqui vai entrar: poll de fila, processar arquivos, chamar Python etc
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			w.Log.Info().Msg("file worker stopped")
+			return
+		case <-ticker.C:
+			w.poll(ctx)
+		}
+	}
+}
+
+// poll is called on each tick. Wire DocRepo + PythonClient here when implementing
+// the ProcessDocument use case (see roadmap).
+func (w *FileWorker) poll(ctx context.Context) {
+	w.Log.Debug().Msg("worker polling for unprocessed documents")
+	// TODO: fetch unprocessed docs, call Python /parse, store chunks + embeddings
 }

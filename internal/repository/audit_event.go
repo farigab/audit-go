@@ -14,5 +14,4 @@ type AuditEventRepository interface {
 
 	// FindByTarget returns events by target id.
 	FindByTarget(ctx context.Context, targetID string) ([]domain.AuditEvent, error)
-
 }

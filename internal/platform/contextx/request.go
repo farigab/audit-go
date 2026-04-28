@@ -10,8 +10,6 @@ const (
 	RequestIDKey key = "request_id"
 	// UserIDKey is the context key used to store the user id.
 	UserIDKey key = "user_id"
-	// TenantIDKey is the context key used to store the tenant id.
-	TenantIDKey key = "tenant_id"
 )
 
 // Set returns a new context with value v stored under key k.

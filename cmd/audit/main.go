@@ -2,7 +2,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	httpdelivery "audit-go/internal/delivery/http"
 	"audit-go/internal/delivery/http/middleware"
@@ -81,17 +87,39 @@ func main() {
 	app = middleware.RequestContext(app)
 	app = middleware.Logging(log)(app)
 
+	// context cancelled on SIGTERM / SIGINT — shared with the worker
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
 	// worker
 	w := worker.New(log)
-	go w.Start()
+	go w.Start(ctx)
 
-	log.Info().
-		Str("addr", cfg.Port).
-		Msg("server started")
-
-	if err = http.ListenAndServe(cfg.Port, app); err != nil {
-		log.Fatal().
-			Err(err).
-			Msg("server failed")
+	srv := &http.Server{
+		Addr:    cfg.Port,
+		Handler: app,
 	}
+
+	go func() {
+		log.Info().Str("addr", cfg.Port).Msg("server started")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal().Err(err).Msg("server failed")
+		}
+	}()
+
+	// Block until signal received.
+	<-ctx.Done()
+	stop() // release signal resources
+
+	log.Info().Msg("shutting down server")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("server shutdown error")
+		os.Exit(1)
+	}
+
+	log.Info().Msg("server stopped cleanly")
 }
