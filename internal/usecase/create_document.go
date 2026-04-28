@@ -60,9 +60,7 @@ func (u CreateDocumentUseCase) Execute(input CreateDocumentInput) (*domain.Docum
 	)
 
 	if err := u.AuditRepo.Save(event); err != nil {
-		// não falha o upload por causa do audit — loga e segue
-		// quando tiver logger no usecase, troca o fmt por log.Warn
-		return &doc, fmt.Errorf("saving audit event: %w", err)
+		return nil, fmt.Errorf("saving audit event: %w", err)
 	}
 
 	return &doc, nil

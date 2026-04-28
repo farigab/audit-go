@@ -32,7 +32,7 @@ func NewHandler(
 	}
 }
 
-const method_not_allowed = "method not allowed"
+const methodNotAllowed = "method not allowed"
 
 func (h Handler) Health(w http.ResponseWriter, r *http.Request) {
 	if err := WriteText(w, http.StatusOK, "ok"); err != nil {
@@ -42,7 +42,7 @@ func (h Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 func (h Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		if err := WriteError(w, http.StatusMethodNotAllowed, method_not_allowed); err != nil {
+		if err := WriteError(w, http.StatusMethodNotAllowed, methodNotAllowed); err != nil {
 			h.logWriteError(r, err)
 		}
 		return
@@ -93,7 +93,7 @@ func (h Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 
 func (h Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		if err := WriteError(w, http.StatusMethodNotAllowed, method_not_allowed); err != nil {
+		if err := WriteError(w, http.StatusMethodNotAllowed, methodNotAllowed); err != nil {
 			h.logWriteError(r, err)
 		}
 		return
