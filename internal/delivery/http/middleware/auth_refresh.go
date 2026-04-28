@@ -31,7 +31,7 @@ func AuthWithRefresh(
 				return
 			}
 
-			userLogin, err := rotateRefreshToken(
+			userLogin, err := RotateRefreshToken(
 				cfg,
 				jwtSvc,
 				userRepo,
@@ -49,7 +49,7 @@ func AuthWithRefresh(
 	}
 }
 
-func rotateRefreshToken(
+func RotateRefreshToken(
 	cfg *config.CookieConfig,
 	jwtSvc security.TokenService,
 	userRepo repository.UserRepository,

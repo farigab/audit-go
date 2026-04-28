@@ -7,30 +7,66 @@ import (
 	"github.com/rs/zerolog"
 
 	"audit-go/internal/cookies"
+	"audit-go/internal/delivery/http/middleware"
 	"audit-go/internal/platform/config"
+	"audit-go/internal/platform/security"
+	"audit-go/internal/repository"
 	"audit-go/internal/usecase"
 )
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	log    zerolog.Logger
-	cfg    *config.CookieConfig
-	login  usecase.LoginUseCase
-	logout usecase.LogoutUseCase
+	log         zerolog.Logger
+	cfg         *config.CookieConfig
+	login       usecase.LoginUseCase
+	logout      usecase.LogoutUseCase
+	jwt         security.TokenService
+	userRepo    repository.UserRepository
+	refreshRepo repository.RefreshTokenRepository
 }
 
 // NewAuthHandler creates a new AuthHandler.
 func NewAuthHandler(
 	log zerolog.Logger,
 	cfg *config.CookieConfig,
+	jwt security.TokenService,
+	userRepo repository.UserRepository,
+	refreshRepo repository.RefreshTokenRepository,
 	login usecase.LoginUseCase,
 	logout usecase.LogoutUseCase,
 ) AuthHandler {
 	return AuthHandler{
-		log:    log,
-		cfg:    cfg,
-		login:  login,
-		logout: logout,
+		log:         log,
+		cfg:         cfg,
+		login:       login,
+		logout:      logout,
+		jwt:         jwt,
+		userRepo:    userRepo,
+		refreshRepo: refreshRepo,
+	}
+}
+
+// Refresh handles POST /auth/refresh.
+// It attempts refresh token rotation and returns basic user info.
+func (h AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	userLogin, err := middleware.RotateRefreshToken(h.cfg, h.jwt, h.userRepo, h.refreshRepo, w, r)
+	if err != nil {
+		h.log.Warn().Err(err).Msg("refresh: failed to rotate refresh token")
+		return
+	}
+
+	user, err := h.userRepo.FindByLogin(r.Context(), userLogin)
+	if err != nil {
+		h.log.Warn().Err(err).Msg("refresh: failed to lookup user")
+		// Return minimal info even if name lookup fails
+		if err = WriteJSON(w, http.StatusOK, map[string]string{"login": userLogin}); err != nil {
+			h.logWriteError(r, err)
+		}
+		return
+	}
+
+	if err = WriteJSON(w, http.StatusOK, map[string]string{"login": user.Login, "name": user.Name}); err != nil {
+		h.logWriteError(r, err)
 	}
 }
 

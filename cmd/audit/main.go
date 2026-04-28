@@ -84,6 +84,8 @@ func main() {
 
 	// middleware chain
 	var app http.Handler = mux
+
+	app = middleware.CORSMiddleware(cfg)(app)
 	app = middleware.RequestContext(app)
 	app = middleware.Logging(log)(app)
 

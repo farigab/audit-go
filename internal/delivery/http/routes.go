@@ -19,8 +19,9 @@ func RegisterRoutes(dep Dependencies) *nethttp.ServeMux {
 		dep.GetDocument,
 	).Health)
 
-	authH := NewAuthHandler(dep.Log, dep.Config, dep.Login, dep.Logout)
+	authH := NewAuthHandler(dep.Log, dep.Config, dep.JWT, dep.UserRepo, dep.RefreshRepo, dep.Login, dep.Logout)
 	mux.HandleFunc("POST /auth/login", authH.Login)
+	mux.HandleFunc("POST /auth/refresh", authH.Refresh)
 
 	// Logout behind auth so we always have an identity for auditing.
 	auth := middleware.AuthWithRefresh(dep.Config, dep.JWT, dep.UserRepo, dep.RefreshRepo)
