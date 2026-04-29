@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -19,17 +18,16 @@ import (
 	"audit-go/internal/repository"
 )
 
-// AuthWithRefresh validates JWT cookie.
-// If expired/invalid, tries refreshToken rotation.
+// AuthWithRefresh validates the Bearer JWT.
+// If the token is missing or invalid the request is rejected with 401.
+// Actual token rotation is handled by POST /auth/refresh — this middleware
+// does NOT rotate automatically.
 func AuthWithRefresh(
 	cfg *config.CookieConfig,
 	jwtSvc security.TokenService,
 	userRepo repository.UserRepository,
 	refreshRepo repository.RefreshTokenRepository,
 ) func(http.Handler) http.Handler {
-	// For the recommended flow we expect the access token in the
-	// Authorization header (Bearer). Do NOT perform automatic rotation
-	// here; require the client to call POST /auth/refresh explicitly.
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if userLogin := extractValidLogin(jwtSvc, r); userLogin != "" {
@@ -43,6 +41,9 @@ func AuthWithRefresh(
 	}
 }
 
+// RotateRefreshToken validates the incoming refresh token cookie, rotates it,
+// issues a new access token, and writes the new refresh token cookie.
+// Returns (userLogin, newAccessToken, error).
 func RotateRefreshToken(
 	cfg *config.CookieConfig,
 	jwtSvc security.TokenService,
@@ -51,74 +52,8 @@ func RotateRefreshToken(
 	w http.ResponseWriter,
 	r *http.Request,
 ) (string, string, error) {
-	if origin := r.Header.Get("Origin"); origin != "" {
-		u, err := url.Parse(origin)
-		if err != nil {
-			cookies.ClearAuth(w, cfg)
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return "", "", fmt.Errorf("invalid origin")
-		}
-
-		// Determine the effective request host. Prefer X-Forwarded-Host when
-		// provided (common behind proxies). Take only the first value when a
-		// comma-separated list is present. Then strip any port so we compare
-		// hostnames only.
-		reqHost := r.Header.Get("X-Forwarded-Host")
-		if reqHost == "" {
-			reqHost = r.Host
-		}
-		if i := strings.Index(reqHost, ","); i != -1 {
-			reqHost = strings.TrimSpace(reqHost[:i])
-		}
-		reqHostname := reqHost
-		if h, _, serr := net.SplitHostPort(reqHost); serr == nil {
-			reqHostname = h
-		}
-
-		originHostname := u.Hostname()
-
-		// If ALLOWED_ORIGINS is explicitly set, treat it as a comma-separated
-		// allowlist of origins (hostnames or full URLs). Otherwise fall back
-		// to the hostname equality check.
-		allowed := strings.TrimSpace(os.Getenv("ALLOWED_ORIGINS"))
-		if allowed != "" {
-			ok := false
-			for _, v := range strings.Split(allowed, ",") {
-				v = strings.TrimSpace(v)
-				if v == "" {
-					continue
-				}
-				// Accept either full URL or host[:port]
-				var aHost string
-				if strings.Contains(v, "://") {
-					if ua, perr := url.Parse(v); perr == nil {
-						aHost = ua.Hostname()
-					} else {
-						aHost = v
-					}
-				} else {
-					aHost = v
-				}
-				if strings.Contains(aHost, ":") {
-					aHost = strings.Split(aHost, ":")[0]
-				}
-				if aHost == originHostname {
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				cookies.ClearAuth(w, cfg)
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return "", "", fmt.Errorf("origin not allowed")
-			}
-		} else {
-			if originHostname == "" || originHostname != reqHostname {
-				cookies.ClearAuth(w, cfg)
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return "", "", fmt.Errorf("origin mismatch")
-			}
-		}
+	if err := checkOrigin(cfg, w, r); err != nil {
+		return "", "", err
 	}
 
 	rtCookie, err := r.Cookie("refreshToken")
@@ -134,9 +69,8 @@ func RotateRefreshToken(
 		return "", "", err
 	}
 
-	// Detect reuse: if token already revoked then this value was used before.
+	// Detect reuse: revoked tokens were already rotated — revoke all sessions.
 	if oldRt.Revoked {
-		// Revoke all sessions for this user as a safety measure.
 		if tokens, terr := refreshRepo.FindByUserLogin(r.Context(), oldRt.UserLogin); terr == nil {
 			for _, t := range tokens {
 				_ = refreshRepo.Delete(r.Context(), t)
@@ -168,24 +102,105 @@ func RotateRefreshToken(
 		return "", "", err
 	}
 
-	newToken := uuid.New().String()
-
 	newRt := domain.NewRefreshToken(
-		newToken,
+		uuid.New().String(),
 		user.Login,
 		time.Now().Add(7*24*time.Hour),
 	)
 
-	// Rotate (mark old revoked, insert new) in the repository.
 	if err = refreshRepo.Rotate(r.Context(), oldRt, newRt); err != nil {
 		http.Error(w, "failed to rotate refresh token", http.StatusBadGateway)
 		return "", "", err
 	}
 
-	// Only set the refresh cookie. The new access token is returned in the
-	// response body so the frontend can store it in memory and send it in
-	// the Authorization header.
-	cookies.SetWithPath(w, "refreshToken", newToken, 7*24*60*60, cfg, "/auth/refresh")
+	// Access token goes in response body (stored in memory by the client).
+	// Refresh token is HttpOnly, scoped to /auth/refresh only.
+	cookies.SetWithPath(w, "refreshToken", newRt.Token, 7*24*60*60, cfg, "/auth/refresh")
 
 	return user.Login, jwtToken, nil
+}
+
+// checkOrigin validates the Origin header against the configured allowlist.
+// When ALLOWED_ORIGINS is empty, falls back to same-host comparison.
+// Non-browser clients (no Origin header) always pass through.
+func checkOrigin(cfg *config.CookieConfig, w http.ResponseWriter, r *http.Request) error {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return nil
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil {
+		cookies.ClearAuth(w, cfg)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return fmt.Errorf("invalid origin header")
+	}
+
+	if !originAllowed(u.Hostname(), strings.TrimSpace(cfg.AllowedOrigins), r) {
+		cookies.ClearAuth(w, cfg)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return fmt.Errorf("origin not allowed")
+	}
+
+	return nil
+}
+
+// originAllowed is a pure decision function with no HTTP side effects.
+// When allowlist is set it delegates to containsHostname; otherwise it
+// compares origin against the effective request host.
+func originAllowed(originHostname, allowlist string, r *http.Request) bool {
+	if originHostname == "" {
+		return false
+	}
+	if allowlist != "" {
+		return containsHostname(allowlist, originHostname)
+	}
+	return originHostname == requestHostname(r)
+}
+
+// containsHostname reports whether target appears in the comma-separated allowlist.
+// Each entry may be a full URL (https://example.com) or a bare host[:port].
+func containsHostname(allowlist, target string) bool {
+	for _, entry := range strings.Split(allowlist, ",") {
+		if extractHostname(strings.TrimSpace(entry)) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// extractHostname normalises a raw allowlist entry to a bare hostname.
+// Accepts full URLs ("https://example.com:8080") or bare hosts ("example.com:8080").
+func extractHostname(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "://") {
+		if u, err := url.Parse(raw); err == nil {
+			return u.Hostname() // handles port stripping via url.URL
+		}
+		return raw
+	}
+	// bare host[:port] — strip optional port
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		return host
+	}
+	return raw
+}
+
+// requestHostname returns the effective hostname of the incoming request,
+// preferring X-Forwarded-Host (set by proxies) over the Host header.
+// Takes only the first value when a comma-separated list is present.
+func requestHostname(r *http.Request) string {
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	if i := strings.Index(host, ","); i != -1 {
+		host = strings.TrimSpace(host[:i])
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }

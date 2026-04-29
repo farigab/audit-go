@@ -51,41 +51,39 @@ func (r *RefreshTokenRepository) Save(
 	return token, nil
 }
 
+// Rotate — parâmetro renomeado de `new` para `next` (new é builtin do Go)
 func (r *RefreshTokenRepository) Rotate(
 	ctx context.Context,
-	old, new *domain.RefreshToken,
+	old, next *domain.RefreshToken,
 ) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning rotation transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	// old.Token is expected to already contain the hashed value (returned by FindByToken).
-	hashedOld := old.Token
-	// Hash the new raw token value before inserting.
-	hashedNew := hashToken(new.Token)
 
-	// Mark the old token as revoked instead of deleting it. This allows reuse
-	// detection: a later use of the same (raw) token will find a revoked row.
-	res, err := tx.ExecContext(ctx, `UPDATE refresh_tokens SET revoked = TRUE WHERE token = $1`, hashedOld)
+	hashedOld := old.Token
+	hashedNext := hashToken(next.Token)
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked = TRUE WHERE token = $1`, hashedOld)
 	if err != nil {
 		return fmt.Errorf("revoking old refresh token: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		// Token not found; treat as expired/revoked.
 		return errors.New("refresh token not found or already revoked")
 	}
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO refresh_tokens (token, user_login, expires_at, revoked, created_at) VALUES ($1, $2, $3, $4, NOW())`,
-		hashedNew, new.UserLogin, new.ExpiresAt, new.Revoked,
+		`INSERT INTO refresh_tokens (token, user_login, expires_at, revoked, created_at)
+		 VALUES ($1, $2, $3, $4, NOW())`,
+		hashedNext, next.UserLogin, next.ExpiresAt, next.Revoked,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting new refresh token: %w", err)
 	}
 
-	// Ensure the new token object reflects the stored (hashed) value.
-	new.Token = hashedNew
+	next.Token = hashedNext
 
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("committing rotation transaction: %w", err)

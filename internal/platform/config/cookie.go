@@ -7,24 +7,24 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config stores environment variables used by the application.
+// CookieConfig stores cookie-related configuration and the CORS allowed origins
+// list, grouped here to avoid passing the full Config into auth middleware.
 type CookieConfig struct {
 	CookieSecure   bool
 	CookieSameSite string
 	CookieDomain   string
+	AllowedOrigins string
 }
 
-// Load reads environment variables (.env optional) and returns the config.
+// LoadCookieConfig reads cookie/CORS configuration from environment variables.
+// Env var names match .env.example exactly (APP_COOKIE_* prefix).
 func LoadCookieConfig() *CookieConfig {
 	_ = godotenv.Load()
 
-	cookieSecure := defaultBool(os.Getenv("COOKIE_SECURE"), true)
-	cookieSameSite := defaultString(os.Getenv("COOKIE_SAME_SITE"), "Lax")
-	cookieDomain := defaultString(os.Getenv("COOKIE_DOMAIN"), "")
-
 	return &CookieConfig{
-		CookieSecure:   cookieSecure,
-		CookieSameSite: cookieSameSite,
-		CookieDomain:   cookieDomain,
+		CookieSecure:   defaultBool(os.Getenv("APP_COOKIE_SECURE"), true),
+		CookieSameSite: defaultString(os.Getenv("APP_COOKIE_SAME_SITE"), "Lax"),
+		CookieDomain:   defaultString(os.Getenv("APP_COOKIE_DOMAIN"), ""),
+		AllowedOrigins: os.Getenv("ALLOWED_ORIGINS"),
 	}
 }

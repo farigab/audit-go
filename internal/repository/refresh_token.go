@@ -13,7 +13,7 @@ type RefreshTokenRepository interface {
 	FindByToken(ctx context.Context, token string) (*domain.RefreshToken, error)
 	FindByUserLogin(ctx context.Context, userLogin string) ([]*domain.RefreshToken, error)
 
-	Rotate(ctx context.Context, old, new *domain.RefreshToken) error
+	Rotate(ctx context.Context, old, next *domain.RefreshToken) error
 
 	Delete(ctx context.Context, t *domain.RefreshToken) error
 	DeleteExpiredTokens(ctx context.Context) error
