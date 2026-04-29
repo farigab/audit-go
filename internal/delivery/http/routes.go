@@ -22,10 +22,10 @@ func RegisterRoutes(dep Dependencies) *nethttp.ServeMux {
 	authH := NewAuthHandler(dep.Log, dep.Config, dep.JWT, dep.UserRepo, dep.RefreshRepo, dep.Login, dep.Logout)
 	mux.HandleFunc("POST /auth/login", authH.Login)
 	mux.HandleFunc("POST /auth/refresh", authH.Refresh)
+	mux.HandleFunc("POST /auth/logout", authH.Logout)
 
 	// Logout behind auth so we always have an identity for auditing.
 	auth := middleware.AuthWithRefresh(dep.Config, dep.JWT, dep.UserRepo, dep.RefreshRepo)
-	mux.Handle("POST /auth/logout", auth(nethttp.HandlerFunc(authH.Logout)))
 
 	// ── Authenticated ─────────────────────────────────────────────────────────
 
