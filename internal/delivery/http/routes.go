@@ -11,15 +11,13 @@ func RegisterRoutes(dep Dependencies) *nethttp.ServeMux {
 	mux := nethttp.NewServeMux()
 
 	h := NewHandler(dep.Log, dep.CreateDocument, dep.DeleteDocument, dep.GetDocument)
-	authH := NewAuthHandler(dep.Log, dep.Config, dep.Login, dep.Logout, dep.Refresh)
-	auth := middleware.Auth(dep.JWT)
+	auth := middleware.Auth(dep.Entra)
 
 	// ── Public ────────────────────────────────────────────────────────────────
+	// Authentication is handled entirely by Microsoft Entra ID (MSAL on the
+	// frontend). The Go API only validates the resulting bearer token.
 
 	mux.HandleFunc("GET /health", h.Health)
-	mux.HandleFunc("POST /auth/login", authH.Login)
-	mux.HandleFunc("POST /auth/refresh", authH.Refresh)
-	mux.HandleFunc("POST /auth/logout", authH.Logout)
 
 	// ── Authenticated ─────────────────────────────────────────────────────────
 

@@ -15,7 +15,10 @@ type Config struct {
 	PythonServiceURL string
 	Port             string
 	AllowedOrigins   string
-	JWTSecret        string
+
+	// Microsoft Entra ID (Azure AD)
+	EntraTenantID string
+	EntraClientID string
 }
 
 // Load reads environment variables (.env optional) and returns the config.
@@ -30,16 +33,13 @@ func Load() *Config {
 		lvl = zerolog.InfoLevel
 	}
 
-	pythonServiceURL := defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000")
-	port := defaultString(os.Getenv("PORT"), ":8080")
-	allowedOrigins := defaultString(os.Getenv("ALLOWED_ORIGINS"), "")
-
 	return &Config{
 		DBurl:            dbURL,
 		LogLevel:         lvl,
-		PythonServiceURL: pythonServiceURL,
-		Port:             port,
-		AllowedOrigins:   allowedOrigins,
-		JWTSecret:        os.Getenv("JWT_SECRET"),
+		PythonServiceURL: defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000"),
+		Port:             defaultString(os.Getenv("PORT"), ":8080"),
+		AllowedOrigins:   defaultString(os.Getenv("ALLOWED_ORIGINS"), ""),
+		EntraTenantID:    os.Getenv("ENTRA_TENANT_ID"),
+		EntraClientID:    os.Getenv("ENTRA_CLIENT_ID"),
 	}
 }

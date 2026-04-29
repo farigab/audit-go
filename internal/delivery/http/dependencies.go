@@ -12,11 +12,9 @@ import (
 type Dependencies struct {
 	Log    zerolog.Logger
 	Config *config.CookieConfig
-	JWT    security.TokenService // needed only by the Auth middleware
 
-	Login   usecase.LoginUseCase
-	Logout  usecase.LogoutUseCase
-	Refresh usecase.RefreshUseCase
+	// Entra replaces the previous JWT service + login/logout/refresh use cases.
+	Entra *security.EntraTokenValidator
 
 	CreateDocument usecase.CreateDocumentUseCase
 	DeleteDocument usecase.DeleteDocumentUseCase
