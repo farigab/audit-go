@@ -8,7 +8,7 @@ services:
     environment:
       - ADDR=:8080
       - PYTHON_SERVICE_URL=http://python-service:8000
-      - POSTGRES_DSN=postgres://audit:audit@postgres:5432/auditdb?sslmode=disable
+      - DB_URL=postgres://audit:audit@postgres:5432/auditdb?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy

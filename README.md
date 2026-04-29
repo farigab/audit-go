@@ -126,10 +126,10 @@ This starts:
 ### 3. Run database migrations
 
 ```bash
-psql "$POSTGRES_DSN" -f db/migrations/001_create_joint_ventures.sql
-psql "$POSTGRES_DSN" -f db/migrations/002_create_documents.sql
-psql "$POSTGRES_DSN" -f db/migrations/003_create_audit_events.sql
-psql "$POSTGRES_DSN" -f db/migrations/004_enable_pgvector.sql
+psql "$DB_URL" -f db/migrations/001_create_joint_ventures.sql
+psql "$DB_URL" -f db/migrations/002_create_documents.sql
+psql "$DB_URL" -f db/migrations/003_create_audit_events.sql
+psql "$DB_URL" -f db/migrations/004_enable_pgvector.sql
 ```
 
 ### 4. Run locally (Go only)
@@ -152,7 +152,7 @@ All configuration is via environment variables:
 | -------- | ------- | ----------- |
 | `ADDR` | `:8080` | HTTP listen address |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
-| `POSTGRES_DSN` | `postgres://audit:audit@localhost:5432/auditdb?sslmode=disable` | PostgreSQL connection string |
+| `DB_URL` | `postgres://audit:audit@localhost:5432/auditdb?sslmode=disable` | PostgreSQL connection string |
 | `PYTHON_SERVICE_URL` | `http://localhost:8000` | Internal Python service base URL |
 | `OPENAI_API_KEY` | — | Required by the Python service |
 
