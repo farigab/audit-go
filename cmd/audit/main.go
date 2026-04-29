@@ -26,6 +26,10 @@ func main() {
 
 	log := logger.NewPrettyWithLevel(cfg.LogLevel)
 
+	if cfg.JWTSecret == "" {
+		log.Fatal().Msg("JWT_SECRET must not be empty")
+	}
+
 	db, err := postgres.Connect(cfg.DBurl)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to postgres")
@@ -54,6 +58,12 @@ func main() {
 		RefreshRepo: refreshRepo,
 	}
 
+	refresh := usecase.RefreshUseCase{
+		UserRepo:    userRepo,
+		RefreshRepo: refreshRepo,
+		JWT:         jwtSvc,
+	}
+
 	createDoc := usecase.CreateDocumentUseCase{
 		DocRepo:   docRepo,
 		AuditRepo: auditRepo,
@@ -73,10 +83,9 @@ func main() {
 		Log:            log,
 		Config:         cfgc,
 		JWT:            jwtSvc,
-		UserRepo:       userRepo,
-		RefreshRepo:    refreshRepo,
 		Login:          login,
 		Logout:         logout,
+		Refresh:        refresh,
 		CreateDocument: createDoc,
 		DeleteDocument: deleteDoc,
 		GetDocument:    getDoc,
@@ -97,12 +106,11 @@ func main() {
 	go w.Start(ctx)
 
 	srv := &http.Server{
-		Addr:    cfg.Port,
-		Handler: app,
-		// Protect against slow-loris and hung connections in production.
+		Addr:              cfg.Port,
+		Handler:           app,
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      30 * time.Second, // generous for file uploads
+		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -113,9 +121,8 @@ func main() {
 		}
 	}()
 
-	// Block until signal received.
 	<-ctx.Done()
-	stop() // release signal resources
+	stop()
 
 	log.Info().Msg("shutting down server")
 
