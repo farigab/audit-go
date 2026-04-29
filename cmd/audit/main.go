@@ -91,11 +91,10 @@ func main() {
 		GetDocument:    getDoc,
 	})
 
-	// middleware chain
 	var app http.Handler = mux
 	app = middleware.CORSMiddleware(cfg)(app)
-	app = middleware.RequestContext(app)
 	app = middleware.Logging(log)(app)
+	app = middleware.RequestContext(app)
 
 	// context cancelled on SIGTERM / SIGINT — shared with the worker
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

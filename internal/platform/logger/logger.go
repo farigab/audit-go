@@ -8,25 +8,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func level() zerolog.Level {
-	return zerolog.InfoLevel
-}
-
-// New returns a default zerolog logger.
-func New() zerolog.Logger {
-	return zerolog.New(os.Stdout).
-		With().
-		Timestamp().
-		Logger().
-		Level(level())
-}
-
-// NewPretty returns a pretty (console) logger with the default level.
-func NewPretty() zerolog.Logger {
-	return NewPrettyWithLevel(level())
-}
-
-// NewPrettyWithLevel returns a pretty (console) logger with the given level.
+// NewPrettyWithLevel returns a console (human-readable) logger at the given level.
+// Use in development and in the main API server.
 func NewPrettyWithLevel(lvl zerolog.Level) zerolog.Logger {
 	return zerolog.New(
 		zerolog.ConsoleWriter{
@@ -39,7 +22,8 @@ func NewPrettyWithLevel(lvl zerolog.Level) zerolog.Logger {
 		Level(lvl)
 }
 
-// NewWithLevel returns a JSON logger with the given level.
+// NewWithLevel returns a JSON logger at the given level.
+// Use in background workers and production deployments.
 func NewWithLevel(lvl zerolog.Level) zerolog.Logger {
 	return zerolog.New(os.Stdout).
 		With().
