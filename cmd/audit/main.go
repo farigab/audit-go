@@ -26,8 +26,8 @@ func main() {
 
 	log := logger.NewPrettyWithLevel(cfg.LogLevel)
 
-	if cfg.JWTSecret == "" {
-		log.Fatal().Msg("JWT_SECRET must not be empty")
+	if cfg.EntraTenantID == "" || cfg.EntraClientID == "" {
+		log.Fatal().Msg("ENTRA_TENANT_ID and ENTRA_CLIENT_ID must not be empty")
 	}
 
 	db, err := postgres.Connect(cfg.DBurl)
@@ -38,32 +38,17 @@ func main() {
 	// repositories
 	docRepo := postgres.NewDocumentRepository(db)
 	auditRepo := postgres.NewAuditEventRepository(db)
-	userRepo := postgres.NewUserRepository(db)
-	refreshRepo := postgres.NewRefreshTokenRepository(db)
 
-	// services
-	jwtSvc, err := security.NewJWTService(cfg.JWTSecret, 900)
+	// Microsoft Entra ID token validator
+	entra, err := security.NewEntraTokenValidator(security.EntraConfig{
+		TenantID: cfg.EntraTenantID,
+		ClientID: cfg.EntraClientID,
+	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create jwt service")
+		log.Fatal().Err(err).Msg("failed to create Entra token validator")
 	}
 
 	// use cases
-	login := usecase.LoginUseCase{
-		UserRepo:    userRepo,
-		RefreshRepo: refreshRepo,
-		JWT:         jwtSvc,
-	}
-
-	logout := usecase.LogoutUseCase{
-		RefreshRepo: refreshRepo,
-	}
-
-	refresh := usecase.RefreshUseCase{
-		UserRepo:    userRepo,
-		RefreshRepo: refreshRepo,
-		JWT:         jwtSvc,
-	}
-
 	createDoc := usecase.CreateDocumentUseCase{
 		DocRepo:   docRepo,
 		AuditRepo: auditRepo,
@@ -82,10 +67,7 @@ func main() {
 	mux := httpdelivery.RegisterRoutes(httpdelivery.Dependencies{
 		Log:            log,
 		Config:         cfgc,
-		JWT:            jwtSvc,
-		Login:          login,
-		Logout:         logout,
-		Refresh:        refresh,
+		Entra:          entra,
 		CreateDocument: createDoc,
 		DeleteDocument: deleteDoc,
 		GetDocument:    getDoc,

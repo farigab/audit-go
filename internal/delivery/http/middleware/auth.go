@@ -20,50 +20,45 @@ func UserLoginFromContext(ctx context.Context) (string, bool) {
 	return login, ok && login != ""
 }
 
-// Auth validates the Bearer JWT in the Authorization header and stores the
-// user login in context. Use this for all authenticated routes.
+// Auth validates the Bearer token issued by Microsoft Entra ID and stores the
+// user login (preferred_username / OID) in context.
 //
-// Token rotation is handled explicitly by POST /auth/refresh — this
-// middleware never rotates automatically.
-func Auth(jwtSvc security.TokenService) func(http.Handler) http.Handler {
+// Token rotation is handled by Entra ID — this middleware only validates.
+func Auth(validator *security.EntraTokenValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			login := extractValidLogin(jwtSvc, r)
-			if login == "" {
+			rawToken := extractBearerToken(r)
+			if rawToken == "" {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), UserLoginKey, login)
-			ctx = contextx.Set(ctx, contextx.UserIDKey, login)
+			claims, err := validator.Validate(r.Context(), rawToken)
+			if err != nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), UserLoginKey, claims.Login)
+			ctx = contextx.Set(ctx, contextx.UserIDKey, claims.Login)
+
+			// Optionally expose display name for logging
+			ctx = contextx.Set(ctx, contextx.UserNameKey, claims.Name)
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// extractValidLogin parses and validates the Bearer token from the
-// Authorization header, returning the user login on success or an empty
-// string on any failure.
-func extractValidLogin(jwtSvc security.TokenService, r *http.Request) string {
+// extractBearerToken reads the Authorization header and returns the raw token.
+func extractBearerToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
 		return ""
 	}
-
 	parts := strings.SplitN(auth, " ", 2)
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
 		return ""
 	}
-
-	token := strings.TrimSpace(parts[1])
-	if token == "" {
-		return ""
-	}
-
-	login, err := jwtSvc.ExtractUserLogin(token)
-	if err != nil || login == "" {
-		return ""
-	}
-
-	return login
+	return strings.TrimSpace(parts[1])
 }
