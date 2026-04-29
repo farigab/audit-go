@@ -14,12 +14,12 @@ import (
 	"audit-go/internal/cookies"
 	"audit-go/internal/domain"
 	"audit-go/internal/platform/config"
+	"audit-go/internal/platform/contextx"
 	"audit-go/internal/platform/security"
 	"audit-go/internal/repository"
 )
 
 // AuthWithRefresh validates the Bearer JWT.
-// If the token is missing or invalid the request is rejected with 401.
 // Actual token rotation is handled by POST /auth/refresh — this middleware
 // does NOT rotate automatically.
 func AuthWithRefresh(
@@ -30,13 +30,17 @@ func AuthWithRefresh(
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if userLogin := extractValidLogin(jwtSvc, r); userLogin != "" {
-				ctx := context.WithValue(r.Context(), UserLoginKey, userLogin)
-				next.ServeHTTP(w, r.WithContext(ctx))
+			userLogin := extractValidLogin(jwtSvc, r)
+			if userLogin == "" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			// Set both keys so handlers and audit use cases always find the identity,
+			// matching the behaviour of the Auth middleware.
+			ctx := context.WithValue(r.Context(), UserLoginKey, userLogin)
+			ctx = contextx.Set(ctx, contextx.UserIDKey, userLogin)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
@@ -177,7 +181,7 @@ func extractHostname(raw string) string {
 	}
 	if strings.Contains(raw, "://") {
 		if u, err := url.Parse(raw); err == nil {
-			return u.Hostname() // handles port stripping via url.URL
+			return u.Hostname()
 		}
 		return raw
 	}

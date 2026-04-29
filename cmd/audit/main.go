@@ -84,7 +84,6 @@ func main() {
 
 	// middleware chain
 	var app http.Handler = mux
-
 	app = middleware.CORSMiddleware(cfg)(app)
 	app = middleware.RequestContext(app)
 	app = middleware.Logging(log)(app)
@@ -100,6 +99,11 @@ func main() {
 	srv := &http.Server{
 		Addr:    cfg.Port,
 		Handler: app,
+		// Protect against slow-loris and hung connections in production.
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second, // generous for file uploads
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

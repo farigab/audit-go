@@ -22,22 +22,24 @@ type Config struct {
 func Load() *Config {
 	_ = godotenv.Load()
 
-	PostGreeURL := defaultString(os.Getenv("DB_URL"), "postgres://audit:audit@localhost:5432/auditdb?sslmode=disable")
+	dbURL := defaultString(os.Getenv("DB_URL"), "postgres://audit:audit@localhost:5432/auditdb?sslmode=disable")
+
 	logLevelStr := defaultString(os.Getenv("LOG_LEVEL"), "info")
 	lvl, err := zerolog.ParseLevel(logLevelStr)
 	if err != nil {
 		lvl = zerolog.InfoLevel
 	}
-	PythonServiceURL := defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000")
-	PORT := defaultString(os.Getenv("PORT"), ":8080")
-	AllowedOrigins := defaultString(os.Getenv("ALLOWED_ORIGINS"), "")
+
+	pythonServiceURL := defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000")
+	port := defaultString(os.Getenv("PORT"), ":8080")
+	allowedOrigins := defaultString(os.Getenv("ALLOWED_ORIGINS"), "")
 
 	return &Config{
-		DBurl:            PostGreeURL,
+		DBurl:            dbURL,
 		LogLevel:         lvl,
-		PythonServiceURL: PythonServiceURL,
-		Port:             PORT,
-		AllowedOrigins:   AllowedOrigins,
+		PythonServiceURL: pythonServiceURL,
+		Port:             port,
+		AllowedOrigins:   allowedOrigins,
 		JWTSecret:        os.Getenv("JWT_SECRET"),
 	}
 }
