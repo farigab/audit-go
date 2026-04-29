@@ -43,8 +43,8 @@ type LoginOutput struct {
 }
 
 // Execute validates credentials and returns signed tokens.
-// It intentionally returns a generic error on bad credentials to prevent
-// user-enumeration attacks.
+// Returns a generic error regardless of whether the login does not exist or
+// any other failure occurs, preventing user-enumeration attacks.
 func (u LoginUseCase) Execute(ctx context.Context, input LoginInput) (*LoginOutput, error) {
 	if input.Login == "" {
 		return nil, errors.New("login is required")
@@ -52,7 +52,6 @@ func (u LoginUseCase) Execute(ctx context.Context, input LoginInput) (*LoginOutp
 
 	user, err := u.UserRepo.FindByLogin(ctx, input.Login)
 	if err != nil {
-		// Return the same error message whether the user doesn't exist or
 		return nil, errors.New("invalid credentials")
 	}
 

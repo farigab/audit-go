@@ -35,13 +35,13 @@ func CORSMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 	}
 }
 
-// buildAllowedOrigins resolves the allowed origins from config, falling back
-// to the APP_ALLOWED_ORIGINS environment variable when config yields nothing.
+// buildAllowedOrigins parses the comma-separated AllowedOrigins list from config.
+// Returns nil when the list is empty, which causes the middleware to block all
+// requests that carry an Origin header (deny-by-default).
 func buildAllowedOrigins(cfg *config.Config) []string {
 	if cfg == nil {
 		return nil
 	}
-
 	return parseOrigins(cfg.AllowedOrigins)
 }
 
