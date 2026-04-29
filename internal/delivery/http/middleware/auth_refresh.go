@@ -106,8 +106,12 @@ func RotateRefreshToken(
 		return "", "", err
 	}
 
+	// Preserve the raw token value to send to the client. The repository
+	// hashes the token before persisting and mutates the struct, so we must
+	// keep the original raw token for the cookie.
+	rawNewToken := uuid.New().String()
 	newRt := domain.NewRefreshToken(
-		uuid.New().String(),
+		rawNewToken,
 		user.Login,
 		time.Now().Add(7*24*time.Hour),
 	)
@@ -119,7 +123,8 @@ func RotateRefreshToken(
 
 	// Access token goes in response body (stored in memory by the client).
 	// Refresh token is HttpOnly, scoped to /auth/refresh only.
-	cookies.SetWithPath(w, "refreshToken", newRt.Token, 7*24*60*60, cfg, "/auth/refresh")
+	// Use the raw token value (not the repository-mutated hashed value).
+	cookies.SetWithPath(w, "refreshToken", rawNewToken, 7*24*60*60, cfg, "/auth/refresh")
 
 	return user.Login, jwtToken, nil
 }
