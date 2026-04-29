@@ -51,16 +51,13 @@ func applyCORS(w http.ResponseWriter, r *http.Request, al origin.Allowlist) bool
 	return false
 }
 
-// rejectOrigin trata requests com Origin não permitida.
-// Preflights são bloqueados com 403. Requests simples passam ao handler
-// mas sem os headers de allow — o browser bloqueia a resposta por conta própria.
 func rejectOrigin(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method == http.MethodOptions {
-		http.Error(w, "origin not allowed", http.StatusForbidden)
-		return true
-	}
-	setAllowHeaders(w, r)
-	return false
+    if r.Method == http.MethodOptions {
+        http.Error(w, "origin not allowed", http.StatusForbidden)
+        return true
+    }
+
+    return false
 }
 
 func setOriginHeaders(w http.ResponseWriter, originHeader string) {
