@@ -3,6 +3,7 @@ package python
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 	"time"
 )
 
-const defaultTimeout = 60 * time.Second // parsing large PDFs can be slow
+const defaultTimeout = 60 * time.Second
 
 // ParseResult represents the parsed output returned by the Python service.
 type ParseResult struct {
@@ -29,50 +30,46 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// NewClient creates a new Python service client with a sensible default timeout.
-// Pass a custom http.Client via NewClientWithHTTP when you need finer control
-// (e.g. different timeouts per environment).
+// NewClient creates a new Python service client.
+// O timeout de 60s é um fallback de segurança — o context do caller
+// sempre tem precedência. Se o worker cancelar o contexto antes de 60s,
+// a chamada HTTP é abortada imediatamente.
 func NewClient(baseURL string) *Client {
 	return &Client{
-		baseURL: baseURL,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
-		},
+		baseURL:    baseURL,
+		httpClient: &http.Client{Timeout: defaultTimeout},
 	}
 }
 
 // NewClientWithHTTP creates a client using the provided http.Client.
-// Useful for tests and custom transport configurations.
 func NewClientWithHTTP(baseURL string, hc *http.Client) *Client {
 	return &Client{baseURL: baseURL, httpClient: hc}
 }
 
 // ParseDocument uploads a file to the Python service and returns the parsed result.
-func (c *Client) ParseDocument(filename string, content []byte) (*ParseResult, error) {
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	part, err := writer.CreateFormFile("file", filepath.Base(filename))
+// O ctx é propagado para o http.Request, garantindo que:
+//   - Cancelamento do contexto (ex: SIGTERM no worker) aborta o upload imediatamente.
+//   - Deadlines do caller (ex: timeout de um handler HTTP) são respeitados.
+//   - O timeout de 60s no httpClient serve só como proteção de último recurso.
+func (c *Client) ParseDocument(ctx context.Context, filename string, content []byte) (*ParseResult, error) {
+	body, contentType, err := buildMultipart(filename, content)
 	if err != nil {
-		return nil, fmt.Errorf("creating form file: %w", err)
+		return nil, err
 	}
 
-	if _, err = part.Write(content); err != nil {
-		return nil, fmt.Errorf("writing file content: %w", err)
-	}
-
-	if err = writer.Close(); err != nil {
-		return nil, fmt.Errorf("closing multipart writer: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/parse", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/parse", body)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", contentType)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		// Contexto cancelado? Retorna o erro do contexto diretamente —
+		// mais informativo do que "connection reset".
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
+		}
 		return nil, fmt.Errorf("calling python service: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -91,4 +88,48 @@ func (c *Client) ParseDocument(filename string, content []byte) (*ParseResult, e
 	}
 
 	return &result, nil
+}
+
+// Health checks if the Python service is alive.
+// Útil para health checks compostos no endpoint /health do Go.
+func (c *Client) Health(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
+	if err != nil {
+		return fmt.Errorf("creating health request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("python service unreachable: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("python service unhealthy: status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// buildMultipart constrói o body multipart e retorna o content-type correto.
+// Separado em função própria para facilitar testes unitários do encoding
+// sem precisar subir um servidor HTTP.
+func buildMultipart(filename string, content []byte) (*bytes.Buffer, string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	part, err := writer.CreateFormFile("file", filepath.Base(filename))
+	if err != nil {
+		return nil, "", fmt.Errorf("creating form file: %w", err)
+	}
+
+	if _, err = part.Write(content); err != nil {
+		return nil, "", fmt.Errorf("writing file content: %w", err)
+	}
+
+	if err = writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("closing multipart writer: %w", err)
+	}
+
+	return body, writer.FormDataContentType(), nil
 }

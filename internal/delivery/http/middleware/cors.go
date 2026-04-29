@@ -2,113 +2,78 @@ package middleware
 
 import (
 	"net/http"
-	"net/url"
-	"slices"
-	"strings"
 
 	"audit-go/internal/platform/config"
+	"audit-go/internal/platform/origin"
 )
 
 // CORSMiddleware returns a middleware that sets CORS headers based on config.
+// A Allowlist é construída uma vez no startup — zero alocações por request.
 func CORSMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
-	allowedOrigins := buildAllowedOrigins(cfg)
+	var al origin.Allowlist
+	if cfg != nil {
+		al = origin.Parse(cfg.AllowedOrigins)
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-
-			if len(allowedOrigins) == 0 && origin != "" {
-				http.Error(w, "origin not allowed", http.StatusForbidden)
+			if handled := applyCORS(w, r, al); handled {
 				return
 			}
-
-			setOriginHeaders(w, origin, allowedOrigins)
-			setAllowHeaders(w, r)
-
-			if r.Method == http.MethodOptions {
-				handlePreflight(w, origin, allowedOrigins)
-				return
-			}
-
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-// buildAllowedOrigins parses the comma-separated AllowedOrigins list from config.
-// Returns nil when the list is empty, which causes the middleware to block all
-// requests that carry an Origin header (deny-by-default).
-func buildAllowedOrigins(cfg *config.Config) []string {
-	if cfg == nil {
-		return nil
+// applyCORS aplica os headers CORS e reporta se o request foi encerrado
+// (preflight respondido ou origin bloqueada). Retorna false quando o
+// handler principal deve continuar normalmente.
+func applyCORS(w http.ResponseWriter, r *http.Request, al origin.Allowlist) bool {
+	originHeader := r.Header.Get("Origin")
+
+	if originHeader == "" {
+		setAllowHeaders(w, r)
+		return false
 	}
-	return parseOrigins(cfg.AllowedOrigins)
+
+	if !al.Allows(originHeader) {
+		return rejectOrigin(w, r)
+	}
+
+	setOriginHeaders(w, originHeader)
+	setAllowHeaders(w, r)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+
+	return false
 }
 
-// parseOrigins splits a comma-separated list of URLs and normalises each entry
-// to scheme://host. Blank entries are ignored; unparseable entries are kept as-is.
-func parseOrigins(raw string) []string {
-	out := make([]string, 0)
-	seen := make(map[string]struct{})
-
-	for _, p := range strings.Split(raw, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-
-		if u, err := url.Parse(p); err == nil && u.Scheme != "" && u.Host != "" {
-			p = u.Scheme + "://" + u.Host
-		}
-
-		if _, ok := seen[p]; ok {
-			continue
-		}
-
-		seen[p] = struct{}{}
-		out = append(out, p)
+// rejectOrigin trata requests com Origin não permitida.
+// Preflights são bloqueados com 403. Requests simples passam ao handler
+// mas sem os headers de allow — o browser bloqueia a resposta por conta própria.
+func rejectOrigin(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == http.MethodOptions {
+		http.Error(w, "origin not allowed", http.StatusForbidden)
+		return true
 	}
-	return out
+	setAllowHeaders(w, r)
+	return false
 }
 
-// isOriginAllowed reports whether origin appears in the allowed list.
-func isOriginAllowed(origin string, allowedOrigins []string) bool {
-	return slices.Contains(allowedOrigins, origin)
+func setOriginHeaders(w http.ResponseWriter, originHeader string) {
+	w.Header().Set("Access-Control-Allow-Origin", originHeader)
+	w.Header().Set("Vary", "Origin")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 }
 
-// setOriginHeaders writes Access-Control-Allow-Origin (and related headers)
-// based on the configured allowed origins.
-func setOriginHeaders(w http.ResponseWriter, origin string, allowedOrigins []string) {
-	if len(allowedOrigins) == 0 {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		return
-	}
-	if origin != "" && isOriginAllowed(origin, allowedOrigins) {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-	}
-}
-
-// setAllowHeaders writes the Access-Control-Allow-Methods and
-// Access-Control-Allow-Headers response headers.
 func setAllowHeaders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-	// Echo requested headers back so custom headers like x-health-check are permitted.
 	if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
 		w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
 	} else {
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Authorization, X-Requested-With, X-Health-Check")
 	}
-}
-
-// handlePreflight responds to an OPTIONS preflight request. It rejects the
-// request when a specific origin whitelist is configured and the request origin
-// is not on it; otherwise it responds with 204 No Content.
-func handlePreflight(w http.ResponseWriter, origin string, allowedOrigins []string) {
-	if len(allowedOrigins) > 0 && origin != "" && !isOriginAllowed(origin, allowedOrigins) {
-		http.Error(w, "origin not allowed", http.StatusForbidden)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }

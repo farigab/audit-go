@@ -3,10 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +12,7 @@ import (
 	"audit-go/internal/domain"
 	"audit-go/internal/platform/config"
 	"audit-go/internal/platform/contextx"
+	"audit-go/internal/platform/origin"
 	"audit-go/internal/platform/security"
 	"audit-go/internal/repository"
 )
@@ -36,8 +34,6 @@ func AuthWithRefresh(
 				return
 			}
 
-			// Set both keys so handlers and audit use cases always find the identity,
-			// matching the behaviour of the Auth middleware.
 			ctx := context.WithValue(r.Context(), UserLoginKey, userLogin)
 			ctx = contextx.Set(ctx, contextx.UserIDKey, userLogin)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -106,9 +102,6 @@ func RotateRefreshToken(
 		return "", "", err
 	}
 
-	// Preserve the raw token value to send to the client. The repository
-	// hashes the token before persisting and mutates the struct, so we must
-	// keep the original raw token for the cookie.
 	rawNewToken := uuid.New().String()
 	newRt := domain.NewRefreshToken(
 		rawNewToken,
@@ -121,95 +114,34 @@ func RotateRefreshToken(
 		return "", "", err
 	}
 
-	// Access token goes in response body (stored in memory by the client).
-	// Refresh token is HttpOnly, scoped to /auth/refresh only.
-	// Use the raw token value (not the repository-mutated hashed value).
 	cookies.SetWithPath(w, "refreshToken", rawNewToken, 7*24*60*60, cfg, "/auth/refresh")
 
 	return user.Login, jwtToken, nil
 }
 
-// checkOrigin validates the Origin header against the configured allowlist.
-// When ALLOWED_ORIGINS is empty, falls back to same-host comparison.
-// Non-browser clients (no Origin header) always pass through.
+// checkOrigin valida o header Origin usando origin.Allowlist.
+//
+// Três casos:
+//  1. Origin ausente  → passa (request não-browser, ex: curl, mobile nativo).
+//  2. Allowlist vazia → bloqueia qualquer Origin presente. Mais seguro do que
+//     o fallback anterior que comparava com o hostname do request.
+//  3. Origin presente → deve estar na allowlist.
+//
+// A Allowlist é construída por request aqui porque /auth/refresh tem baixa
+// frequência. Se isso mudar, injete a Allowlist pré-construída via closure.
 func checkOrigin(cfg *config.CookieConfig, w http.ResponseWriter, r *http.Request) error {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
+	originHeader := r.Header.Get("Origin")
+	if originHeader == "" {
 		return nil
 	}
 
-	u, err := url.Parse(origin)
-	if err != nil {
-		cookies.ClearAuth(w, cfg)
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return fmt.Errorf("invalid origin header")
-	}
+	al := origin.Parse(cfg.AllowedOrigins)
 
-	if !originAllowed(u.Hostname(), strings.TrimSpace(cfg.AllowedOrigins), r) {
+	if !al.Allows(originHeader) {
 		cookies.ClearAuth(w, cfg)
 		http.Error(w, "forbidden", http.StatusForbidden)
-		return fmt.Errorf("origin not allowed")
+		return fmt.Errorf("origin not allowed: %s", originHeader)
 	}
 
 	return nil
-}
-
-// originAllowed is a pure decision function with no HTTP side effects.
-// When allowlist is set it delegates to containsHostname; otherwise it
-// compares origin against the effective request host.
-func originAllowed(originHostname, allowlist string, r *http.Request) bool {
-	if originHostname == "" {
-		return false
-	}
-	if allowlist != "" {
-		return containsHostname(allowlist, originHostname)
-	}
-	return originHostname == requestHostname(r)
-}
-
-// containsHostname reports whether target appears in the comma-separated allowlist.
-// Each entry may be a full URL (https://example.com) or a bare host[:port].
-func containsHostname(allowlist, target string) bool {
-	for _, entry := range strings.Split(allowlist, ",") {
-		if extractHostname(strings.TrimSpace(entry)) == target {
-			return true
-		}
-	}
-	return false
-}
-
-// extractHostname normalises a raw allowlist entry to a bare hostname.
-// Accepts full URLs ("https://example.com:8080") or bare hosts ("example.com:8080").
-func extractHostname(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	if strings.Contains(raw, "://") {
-		if u, err := url.Parse(raw); err == nil {
-			return u.Hostname()
-		}
-		return raw
-	}
-	// bare host[:port] — strip optional port
-	if host, _, err := net.SplitHostPort(raw); err == nil {
-		return host
-	}
-	return raw
-}
-
-// requestHostname returns the effective hostname of the incoming request,
-// preferring X-Forwarded-Host (set by proxies) over the Host header.
-// Takes only the first value when a comma-separated list is present.
-func requestHostname(r *http.Request) string {
-	host := r.Header.Get("X-Forwarded-Host")
-	if host == "" {
-		host = r.Host
-	}
-	if i := strings.Index(host, ","); i != -1 {
-		host = strings.TrimSpace(host[:i])
-	}
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return host
 }
