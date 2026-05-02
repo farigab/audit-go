@@ -51,7 +51,7 @@ func Load() *Config {
 		EntraClientSecret: os.Getenv("ENTRA_CLIENT_SECRET"),
 		EntraRedirectURL:  defaultString(os.Getenv("ENTRA_REDIRECT_URL"), "http://localhost:8080/auth/callback"),
 
-		AuthSuccessRedirectURL: defaultString(os.Getenv("AUTH_SUCCESS_REDIRECT_URL"), "http://localhost:3000"),
+		AuthSuccessRedirectURL: defaultString(os.Getenv("AUTH_SUCCESS_REDIRECT_URL"), "http://localhost:5173"),
 		SessionTTL:             defaultDuration(os.Getenv("APP_SESSION_TTL"), 15*time.Minute),
 		RefreshTTL:             defaultDuration(os.Getenv("APP_REFRESH_TTL"), 30*24*time.Hour),
 	}
