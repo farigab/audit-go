@@ -10,8 +10,13 @@ services:
       - PYTHON_SERVICE_URL=http://python-service:8000
       - DB_URL=postgres://audit:audit@postgres:5432/auditdb?sslmode=disable
       - ALLOWED_ORIGINS=http://localhost:3000
+      - AUTH_SUCCESS_REDIRECT_URL=http://localhost:3000
+      - APP_SESSION_TTL=15m
+      - APP_REFRESH_TTL=720h
       - ENTRA_TENANT_ID=${ENTRA_TENANT_ID}
       - ENTRA_CLIENT_ID=${ENTRA_CLIENT_ID}
+      - ENTRA_CLIENT_SECRET=${ENTRA_CLIENT_SECRET}
+      - ENTRA_REDIRECT_URL=${ENTRA_REDIRECT_URL}
       - APP_COOKIE_SECURE=false
       - APP_COOKIE_SAME_SITE=Lax
       - APP_COOKIE_DOMAIN=

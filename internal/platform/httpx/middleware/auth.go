@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -10,11 +11,30 @@ import (
 	"audit-go/internal/platform/security"
 )
 
-// Auth validates the Bearer token issued by Microsoft Entra ID and stores the
-// application principal in context.
-func Auth(validator *security.EntraTokenValidator) func(http.Handler) http.Handler {
+// SessionResolver resolves opaque application sessions.
+type SessionResolver interface {
+	PrincipalFromSession(ctx context.Context, sessionToken string) (access.Principal, error)
+}
+
+// Auth validates an app session cookie first, then falls back to a Microsoft
+// Entra bearer token for non-browser clients.
+func Auth(
+	validator *security.EntraTokenValidator,
+	sessions SessionResolver,
+	sessionCookieName string,
+) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if sessions != nil && sessionCookieName != "" {
+				if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+					principal, err := sessions.PrincipalFromSession(r.Context(), cookie.Value)
+					if err == nil {
+						next.ServeHTTP(w, r.WithContext(withPrincipal(r.Context(), principal)))
+						return
+					}
+				}
+			}
+
 			rawToken := extractBearerToken(r)
 			if rawToken == "" {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -34,13 +54,16 @@ func Auth(validator *security.EntraTokenValidator) func(http.Handler) http.Handl
 				Roles: access.RolesFromStrings(claims.Roles),
 			}
 
-			ctx := access.WithPrincipal(r.Context(), principal)
-			ctx = contextx.Set(ctx, contextx.UserIDKey, principal.UserKey())
-			ctx = contextx.Set(ctx, contextx.UserNameKey, claims.Name)
-
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(withPrincipal(r.Context(), principal)))
 		})
 	}
+}
+
+func withPrincipal(ctx context.Context, principal access.Principal) context.Context {
+	ctx = access.WithPrincipal(ctx, principal)
+	ctx = contextx.Set(ctx, contextx.UserIDKey, principal.UserKey())
+	ctx = contextx.Set(ctx, contextx.UserNameKey, principal.Name)
+	return ctx
 }
 
 func extractBearerToken(r *http.Request) string {

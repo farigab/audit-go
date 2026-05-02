@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	accessapp "audit-go/internal/features/access/app"
+	accesshttp "audit-go/internal/features/access/http"
 	accesspostgres "audit-go/internal/features/access/postgres"
 	auditpostgres "audit-go/internal/features/audit/postgres"
 	documentsapp "audit-go/internal/features/documents/app"
@@ -26,6 +28,7 @@ import (
 
 func main() {
 	cfg := config.Load()
+	cookieCfg := config.LoadCookieConfig()
 
 	log := logger.NewPrettyWithLevel(cfg.LogLevel)
 
@@ -42,6 +45,7 @@ func main() {
 	docRepo := documentpostgres.NewRepository(db)
 	auditRepo := auditpostgres.NewRepository(db)
 	authorizer := accesspostgres.NewAuthorizer(db)
+	sessionRepo := accesspostgres.NewSessionRepository(db)
 	transactor := platformpostgres.NewTransactor(db)
 
 	// Microsoft Entra ID token validator
@@ -52,6 +56,17 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create Entra token validator")
 	}
+
+	authService := accessapp.NewService(accessapp.Config{
+		TenantID:           cfg.EntraTenantID,
+		ClientID:           cfg.EntraClientID,
+		ClientSecret:       cfg.EntraClientSecret,
+		RedirectURL:        cfg.EntraRedirectURL,
+		SuccessRedirectURL: cfg.AuthSuccessRedirectURL,
+		AllowedOrigins:     cfg.AllowedOrigins,
+		SessionTTL:         cfg.SessionTTL,
+		RefreshTTL:         cfg.RefreshTTL,
+	}, sessionRepo, entra)
 
 	// use cases
 	createDoc := documentsapp.CreateDocumentUseCase{
@@ -81,7 +96,12 @@ func main() {
 		}
 	})
 
-	auth := middleware.Auth(entra)
+	auth := middleware.Auth(entra, authService, accesshttp.SessionCookie)
+	accesshttp.RegisterRoutes(
+		mux,
+		auth,
+		accesshttp.NewHandler(log, authService, cookieCfg),
+	)
 	documentshttp.RegisterRoutes(
 		mux,
 		auth,
@@ -89,6 +109,7 @@ func main() {
 	)
 
 	var app http.Handler = mux
+	app = middleware.CSRF(accesshttp.CSRFCookie, accesshttp.CSRFHeader, accesshttp.SessionCookie, accesshttp.RefreshCookie)(app)
 	app = middleware.CORSMiddleware(cfg)(app)
 	app = middleware.Logging(log)(app)
 	app = middleware.RequestContext(app)

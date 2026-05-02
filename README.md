@@ -103,6 +103,8 @@ Fill in:
 
 - `ENTRA_TENANT_ID`
 - `ENTRA_CLIENT_ID`
+- `ENTRA_CLIENT_SECRET` when using a confidential server-side app registration
+- `ENTRA_REDIRECT_URL`, usually `http://localhost:8080/auth/callback` locally
 - `OPENAI_API_KEY` for Python AI helpers
 
 Run the stack:
@@ -119,7 +121,7 @@ psql "$DB_URL" -f db/migrations/002_create_documents.sql
 psql "$DB_URL" -f db/migrations/003_create_audit_events.sql
 psql "$DB_URL" -f db/migrations/004_enable_pgvector.sql
 psql "$DB_URL" -f db/migrations/005_create_users.sql
-psql "$DB_URL" -f db/migrations/006_create_refresh_tokens.sql
+psql "$DB_URL" -f db/migrations/006_create_access_sessions.sql
 psql "$DB_URL" -f db/migrations/007_create_regions_and_access_memberships.sql
 ```
 
@@ -128,6 +130,24 @@ psql "$DB_URL" -f db/migrations/007_create_regions_and_access_memberships.sql
 ```http
 GET /health
 ```
+
+Authentication endpoints:
+
+```http
+GET  /auth/login?return_url=
+GET  /auth/callback
+GET  /auth/me
+POST /auth/refresh
+POST /auth/logout
+```
+
+The API uses Microsoft Entra Authorization Code + PKCE and issues application cookies:
+
+- `audit_session`: opaque HttpOnly app session.
+- `audit_refresh`: opaque HttpOnly rotating refresh token.
+- `audit_csrf`: readable double-submit CSRF token.
+
+For mutating requests sent with cookies, clients must copy `audit_csrf` into the `X-CSRF-Token` header. The API still accepts Microsoft Entra bearer tokens for non-browser clients.
 
 Authenticated document endpoints:
 

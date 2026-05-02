@@ -3,6 +3,7 @@ package config
 
 import (
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
@@ -17,8 +18,14 @@ type Config struct {
 	AllowedOrigins   string
 
 	// Microsoft Entra ID (Azure AD)
-	EntraTenantID string
-	EntraClientID string
+	EntraTenantID     string
+	EntraClientID     string
+	EntraClientSecret string
+	EntraRedirectURL  string
+
+	AuthSuccessRedirectURL string
+	SessionTTL             time.Duration
+	RefreshTTL             time.Duration
 }
 
 // Load reads environment variables (.env optional) and returns the config.
@@ -34,12 +41,18 @@ func Load() *Config {
 	}
 
 	return &Config{
-		DBurl:            dbURL,
-		LogLevel:         lvl,
-		PythonServiceURL: defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000"),
-		Port:             defaultString(os.Getenv("PORT"), ":8080"),
-		AllowedOrigins:   defaultString(os.Getenv("ALLOWED_ORIGINS"), ""),
-		EntraTenantID:    os.Getenv("ENTRA_TENANT_ID"),
-		EntraClientID:    os.Getenv("ENTRA_CLIENT_ID"),
+		DBurl:             dbURL,
+		LogLevel:          lvl,
+		PythonServiceURL:  defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000"),
+		Port:              defaultString(os.Getenv("PORT"), ":8080"),
+		AllowedOrigins:    defaultString(os.Getenv("ALLOWED_ORIGINS"), ""),
+		EntraTenantID:     os.Getenv("ENTRA_TENANT_ID"),
+		EntraClientID:     os.Getenv("ENTRA_CLIENT_ID"),
+		EntraClientSecret: os.Getenv("ENTRA_CLIENT_SECRET"),
+		EntraRedirectURL:  defaultString(os.Getenv("ENTRA_REDIRECT_URL"), "http://localhost:8080/auth/callback"),
+
+		AuthSuccessRedirectURL: defaultString(os.Getenv("AUTH_SUCCESS_REDIRECT_URL"), "http://localhost:3000"),
+		SessionTTL:             defaultDuration(os.Getenv("APP_SESSION_TTL"), 15*time.Minute),
+		RefreshTTL:             defaultDuration(os.Getenv("APP_REFRESH_TTL"), 30*24*time.Hour),
 	}
 }
