@@ -10,19 +10,22 @@ import (
 	"syscall"
 	"time"
 
-	httpdelivery "audit-go/internal/delivery/http"
-	"audit-go/internal/delivery/http/middleware"
-	"audit-go/internal/infrastructure/postgres"
+	accesspostgres "audit-go/internal/features/access/postgres"
+	auditpostgres "audit-go/internal/features/audit/postgres"
+	documentsapp "audit-go/internal/features/documents/app"
+	documentshttp "audit-go/internal/features/documents/http"
+	documentpostgres "audit-go/internal/features/documents/postgres"
+	processingworker "audit-go/internal/features/processing/worker"
 	"audit-go/internal/platform/config"
+	"audit-go/internal/platform/httpx"
+	"audit-go/internal/platform/httpx/middleware"
 	"audit-go/internal/platform/logger"
+	platformpostgres "audit-go/internal/platform/postgres"
 	"audit-go/internal/platform/security"
-	"audit-go/internal/usecase"
-	"audit-go/internal/worker"
 )
 
 func main() {
 	cfg := config.Load()
-	cfgc := config.LoadCookieConfig()
 
 	log := logger.NewPrettyWithLevel(cfg.LogLevel)
 
@@ -30,14 +33,16 @@ func main() {
 		log.Fatal().Msg("ENTRA_TENANT_ID and ENTRA_CLIENT_ID must not be empty")
 	}
 
-	db, err := postgres.Connect(cfg.DBurl)
+	db, err := platformpostgres.Connect(cfg.DBurl)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to postgres")
 	}
 
 	// repositories
-	docRepo := postgres.NewDocumentRepository(db)
-	auditRepo := postgres.NewAuditEventRepository(db)
+	docRepo := documentpostgres.NewRepository(db)
+	auditRepo := auditpostgres.NewRepository(db)
+	authorizer := accesspostgres.NewAuthorizer(db)
+	transactor := platformpostgres.NewTransactor(db)
 
 	// Microsoft Entra ID token validator
 	entra, err := security.NewEntraTokenValidator(security.EntraConfig{
@@ -49,29 +54,39 @@ func main() {
 	}
 
 	// use cases
-	createDoc := usecase.CreateDocumentUseCase{
-		DocRepo:   docRepo,
-		AuditRepo: auditRepo,
+	createDoc := documentsapp.CreateDocumentUseCase{
+		DocRepo:    docRepo,
+		AuditRepo:  auditRepo,
+		Authorizer: authorizer,
+		Transactor: transactor,
 	}
 
-	deleteDoc := usecase.DeleteDocumentUseCase{
-		DocRepo:   docRepo,
-		AuditRepo: auditRepo,
+	deleteDoc := documentsapp.DeleteDocumentUseCase{
+		DocRepo:    docRepo,
+		AuditRepo:  auditRepo,
+		Authorizer: authorizer,
+		Transactor: transactor,
 	}
 
-	getDoc := usecase.GetDocumentUseCase{
-		DocRepo: docRepo,
+	getDoc := documentsapp.GetDocumentUseCase{
+		DocRepo:    docRepo,
+		Authorizer: authorizer,
 	}
 
 	// router
-	mux := httpdelivery.RegisterRoutes(httpdelivery.Dependencies{
-		Log:            log,
-		Config:         cfgc,
-		Entra:          entra,
-		CreateDocument: createDoc,
-		DeleteDocument: deleteDoc,
-		GetDocument:    getDoc,
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		if err := httpx.WriteText(w, http.StatusOK, "ok"); err != nil {
+			log.Error().Err(err).Str("path", r.URL.Path).Msg("failed to write response")
+		}
 	})
+
+	auth := middleware.Auth(entra)
+	documentshttp.RegisterRoutes(
+		mux,
+		auth,
+		documentshttp.NewHandler(log, createDoc, deleteDoc, getDoc),
+	)
 
 	var app http.Handler = mux
 	app = middleware.CORSMiddleware(cfg)(app)
@@ -83,7 +98,7 @@ func main() {
 	defer stop()
 
 	// worker
-	w := worker.New(log)
+	w := processingworker.New(log)
 	go w.Start(ctx)
 
 	srv := &http.Server{

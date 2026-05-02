@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	processingworker "audit-go/internal/features/processing/worker"
 	"audit-go/internal/platform/config"
 	"audit-go/internal/platform/logger"
-	"audit-go/internal/worker"
 )
 
 func main() {
@@ -18,6 +18,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	w := worker.New(log)
+	w := processingworker.New(log)
 	w.Start(ctx) // blocks until ctx is cancelled
 }

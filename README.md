@@ -1,183 +1,143 @@
 # audit-go
 
-Audit platform for Joint Ventures. Manages document ingestion (PDF/XLSX), AI-powered chat over documents, and immutable audit trails — in a multi-tenant architecture.
-
----
+Audit platform for joint ventures. The Go application is a modular monolith that owns identity integration, authorization, document metadata, processing orchestration, and immutable audit trails. Python is an internal processing service for OCR, parsing, embeddings, and AI-specific workloads.
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────┐
-│              Client (Web/App)           │
-└──────────────────┬──────────────────────┘
-                   │ HTTP
-┌──────────────────▼──────────────────────┐
-│             Go API  (audit-go)          │
-│  · Authentication / Multi-tenant        │
-│  · Audit event recording                │
-│  · Use case orchestration               │
-│  · File upload → S3/MinIO               │
-└────────┬─────────────────┬──────────────┘
-         │ HTTP             │ SQL
-┌────────▼────────┐  ┌──────▼──────────────┐
-│ Python Service  │  │    PostgreSQL       │
-│  (FastAPI)      │  │    + pgvector       │
-│  · Parse PDF    │  │    · documents      │
-│  · Parse Excel  │  │    · audit_events   │
-│  · OCR          │  │    · embeddings     │
-│  · Embeddings   │  │    · joint_ventures │
-│  · Chat / RAG   │  └─────────────────────┘
-└─────────────────┘
+Client
+  |
+  | HTTPS
+  v
+Go API / Modular Monolith
+  |-- access          users, roles, region/JV memberships
+  |-- regions         regional authorization boundary
+  |-- jointventures   JV lifecycle and region ownership
+  |-- documents       document metadata and scoped CRUD
+  |-- processing      workers and Python service integration
+  |-- audit           immutable audit events
+  |
+  | SQL
+  v
+PostgreSQL + pgvector
+
+Go processing worker
+  |
+  | internal HTTP
+  v
+Python service
+  |-- PDF parsing
+  |-- Excel parsing
+  |-- OCR
+  |-- embeddings / AI helpers
 ```
 
-**Responsibility boundary:** Go handles infrastructure, security, and audit; Python handles document processing and AI. Clients never call Python directly — Go is the single entry point.
-
----
+Go is the only public backend entry point. The frontend does not call Python directly. Microsoft Entra proves identity; application authorization is stored and enforced by Go with roles scoped to system, region, or joint venture.
 
 ## Project Structure
 
 ```text
-audit-go/
-├── cmd/
-│   ├── audit/          # HTTP server entrypoint
-│   └── worker/         # Background worker (PDF/XLSX processing)
-│
-├── internal/
-│   ├── domain/
-│   │   ├── document.go
-│   │   ├── audit_event.go
-│   │   └── joint_venture.go
-│   │
-│   ├── delivery/http/
-│   │   ├── handler.go
-│   │   ├── middleware.go
-│   │   └── response.go
-│   │
-│   ├── usecase/
-│   │   ├── create_document.go
-│   │   ├── delete_document.go
-│   │   └── get_document.go
-│   │
-│   ├── infrastructure/
-│   │   ├── postgres/   # Repositories (documents, audit events)
-│   │   └── python/     # HTTP client → Python service
-│   │
-│   ├── worker/
-│   │   └── file_worker.go
-│   │
-│   └── platform/
-│       ├── contextx/   # Request-scoped values (tenant, user, request ID)
-│       └── logger/     # zerolog wrappers (JSON prod, pretty dev)
-│
-├── db/
-│   └── migrations/
-│       ├── 001_create_joint_ventures.sql
-│       ├── 002_create_documents.sql
-│       ├── 003_create_audit_events.sql
-│       └── 004_enable_pgvector.sql
-│
-└── python-service/
-    ├── main.py
-    ├── processors/
-    │   ├── pdf.py      # pdfplumber
-    │   ├── excel.py    # openpyxl
-    │   └── ocr.py      # pytesseract
-    └── ai/
-        ├── embeddings.py   # text-embedding-3-small
-        ├── chat.py         # gpt-4o-mini
-        └── vector_store.py # pgvector / ChromaDB (protocol stub)
+cmd/
+  audit/                 HTTP API entrypoint
+  worker/                processing worker entrypoint
+
+internal/
+  features/
+    access/              roles, scopes, memberships, authorization checks
+    audit/               immutable audit events and persistence
+    documents/           document domain, use cases, HTTP, Postgres
+    jointventures/       JV domain
+    processing/          Python client and workers
+    regions/             region domain
+
+  platform/
+    config/              environment loading
+    contextx/            request scoped values
+    httpx/               HTTP helpers and middleware
+    logger/              zerolog setup
+    origin/              CORS origin allowlist
+    postgres/            DB connection and transactions
+    security/            Microsoft Entra token validation
+
+python-service/
+  main.py                FastAPI app
+  processors/            PDF, Excel, OCR parsers
+  ai/                    embeddings, chat, vector store protocol
 ```
 
----
+## Authorization Model
+
+Roles are application roles, not frontend-only flags:
+
+- `admin`
+- `region_admin`
+- `jv_admin`
+- `contributor`
+- `auditor`
+- `visitor`
+
+Memberships are scoped with:
+
+- `system`: global application scope
+- `region`: applies to all JVs in a region
+- `joint_venture`: applies to one JV
+
+Document use cases authorize against the owning JV before reading, creating, or deleting data. Mutations and audit events are committed in the same database transaction.
 
 ## Prerequisites
 
 | Tool | Version |
 | ---- | ------- |
-| Go | 1.24+ |
+| Go | 1.26.2+ |
 | Python | 3.12+ |
 | Docker + Compose | v2 |
-| PostgreSQL | 16 (via pgvector image) |
-| golangci-lint | latest (for local linting) |
-
----
+| PostgreSQL | 16 with pgvector |
 
 ## Getting Started
 
-### 1. Environment
-
 ```bash
 cp .env.example .env
-# Edit .env and fill in OPENAI_API_KEY and any other values
 ```
 
-### 2. Run with Docker Compose (recommended)
+Fill in:
+
+- `ENTRA_TENANT_ID`
+- `ENTRA_CLIENT_ID`
+- `OPENAI_API_KEY` for Python AI helpers
+
+Run the stack:
 
 ```bash
 docker compose up --build
 ```
 
-This starts:
-
-- `api` — Go server on `:8080`
-- `python-service` — FastAPI on `:8000`
-- `postgres` — PostgreSQL 16 with pgvector on `:5432`
-
-### 3. Run database migrations
+Run migrations in order:
 
 ```bash
 psql "$DB_URL" -f db/migrations/001_create_joint_ventures.sql
 psql "$DB_URL" -f db/migrations/002_create_documents.sql
 psql "$DB_URL" -f db/migrations/003_create_audit_events.sql
 psql "$DB_URL" -f db/migrations/004_enable_pgvector.sql
+psql "$DB_URL" -f db/migrations/005_create_users.sql
+psql "$DB_URL" -f db/migrations/006_create_refresh_tokens.sql
+psql "$DB_URL" -f db/migrations/007_create_regions_and_access_memberships.sql
 ```
-
-### 4. Run locally (Go only)
-
-```bash
-# Windows
-run.bat
-
-# Linux / macOS
-go run ./cmd/audit
-```
-
----
-
-## Configuration
-
-All configuration is via environment variables:
-
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `ADDR` | `:8080` | HTTP listen address |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
-| `DB_URL` | `postgres://audit:audit@localhost:5432/auditdb?sslmode=disable` | PostgreSQL connection string |
-| `PYTHON_SERVICE_URL` | `http://localhost:8000` | Internal Python service base URL |
-| `OPENAI_API_KEY` | — | Required by the Python service |
-
----
 
 ## API
 
-All endpoints expect `X-User-ID` and `X-Tenant-ID` headers for multi-tenancy.
-
-### Health
-
 ```http
 GET /health
-→ 200 "ok"
 ```
 
-### Documents
+Authenticated document endpoints:
 
 ```http
-POST   /documents         — create document record
-GET    /documents/get?id= — get document by ID
-DELETE /documents/delete?id= — delete document
+POST   /documents
+GET    /documents/get?id=
+DELETE /documents/delete?id=
 ```
 
-**POST /documents** body:
+`POST /documents`:
 
 ```json
 {
@@ -190,52 +150,46 @@ DELETE /documents/delete?id= — delete document
 
 Document types: `contract`, `financial`, `report`, `other`.
 
----
-
 ## Python Service
 
-Internal only — not exposed to clients.
+Internal only:
 
 ```http
-POST /parse   — parses PDF or XLSX, returns text + tables + markdown
-GET  /health  — liveness check
+GET  /health
+POST /parse
 ```
 
-Supported file types: `.pdf`, `.xlsx`, `.xls`.
+Supported parser inputs:
 
----
+- `.pdf`
+- `.xlsx`
 
-## Key Design Decisions
+The parser response normalizes tables as:
 
-**Immutable audit log** — `audit_events` is insert-only. Every mutation (create, delete, AI query) produces a new event. No updates, no deletes. This is enforced at the use case layer.
-
-**Minimal interfaces per use case** — each use case defines only the repository methods it actually needs (e.g., `createDocumentRepo` only has `Save`). This keeps tests simple and avoids bloated interfaces.
-
-**Go orchestrates, Python processes** — Go owns the request lifecycle, auth context, and audit trail. Python owns CPU/IO-heavy work (parsing, embeddings, RAG). Decoupled via HTTP; could be replaced with gRPC with no domain changes.
-
-**pgvector for embeddings** — document chunks are stored alongside business data in the same Postgres instance. Avoids an extra vector DB for the current scale. The `VectorStore` protocol in Python makes it easy to swap to Chroma or Qdrant later.
-
----
+```json
+{
+  "filename": "report.xlsx",
+  "pages": 1,
+  "text": "...",
+  "markdown": "...",
+  "tables": [
+    {
+      "sheet": "Sheet1",
+      "rows": [["A", "B"], ["1", "2"]]
+    }
+  ]
+}
+```
 
 ## Development
-
-### Lint & test (Windows)
-
-```bat
-check.bat   # fmt + vet + golangci-lint + tests
-lint.bat    # lint only
-```
-
-### Lint & test (Linux/macOS)
 
 ```bash
 go fmt ./...
 go vet ./...
-golangci-lint run
 go test ./...
 ```
 
-### Python service
+Python service:
 
 ```bash
 cd python-service
@@ -243,15 +197,10 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
----
+## Next Steps
 
-## Roadmap
-
-- [ ] `ProcessDocument` use case — Go worker calls Python `/parse`, stores chunks + embeddings
-- [ ] `Chat` use case — retrieval + LLM call, logs `chat.queried` audit event
-- [ ] S3/MinIO integration — actual file storage (currently only `storage_key` is tracked)
-- [ ] JointVenture CRUD endpoints
-- [ ] Authentication middleware (JWT / API key)
-- [ ] Graceful shutdown for HTTP server
-- [ ] `pgvector` implementation of `VectorStore` protocol
-- [ ] Migration runner (replace manual `psql` calls)
+- Add BFF login/callback/session endpoints for Entra authorization code flow.
+- Store opaque HttpOnly application sessions and rotating refresh tokens.
+- Add CSRF protection for cookie-authenticated mutating requests.
+- Implement processing jobs/outbox so the Go worker calls Python and persists chunks.
+- Add region and joint venture CRUD endpoints.
