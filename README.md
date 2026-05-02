@@ -34,6 +34,11 @@ Python service
 
 Go is the only public backend entry point. The frontend does not call Python directly. Microsoft Entra proves identity; application authorization is stored and enforced by Go with roles scoped to system, region, or joint venture.
 
+## Documentation
+
+- [FRONTEND_API_CONTRACT.md](FRONTEND_API_CONTRACT.md): contract consumivel pelo frontend com cookies, CSRF, auth, documents e upload.
+- [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md): direcao arquitetural, backlog e evolucao planejada da plataforma.
+
 ## Project Structure
 
 ```text
@@ -127,6 +132,44 @@ psql "$DB_URL" -f db/migrations/008_enable_pgvector.sql
 psql "$DB_URL" -f db/migrations/009_create_storage_and_processing.sql
 psql "$DB_URL" -f db/migrations/010_add_upload_confirmation_metadata.sql
 ```
+
+## Frontend Quick Start
+
+Para o frontend web atual, assuma estes pontos:
+
+- base URL local: `http://localhost:8080`
+- autenticacao principal: cookies com `credentials: "include"`
+- cookie auth: `audit_session`
+- refresh: `audit_refresh`
+- CSRF header: `X-CSRF-Token` com o valor de `audit_csrf`
+
+Fluxo minimo:
+
+1. Redirecione o browser para `GET /auth/login?return_url=<frontend-url>`.
+2. Depois do callback, chame `GET /auth/me` com `credentials: "include"`.
+3. Em `POST`, `PUT`, `PATCH` e `DELETE`, envie `X-CSRF-Token`.
+4. Se uma chamada autenticada voltar `401`, tente `POST /auth/refresh` e repita a request original.
+
+Fluxo de upload atual:
+
+1. Chame `POST /joint-ventures/{jvID}/documents/upload-url`.
+2. Faça `PUT` direto para a URL do Blob retornada.
+3. Confirme com `POST /documents/{documentID}/upload-complete`.
+
+O backend hoje ja implementa:
+
+- `GET /health`
+- `GET /auth/me`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+- `POST /documents`
+- `GET /joint-ventures/{jvID}/documents`
+- `GET /documents/get?id=`
+- `DELETE /documents/delete?id=`
+- `POST /joint-ventures/{jvID}/documents/upload-url`
+- `POST /documents/{documentID}/upload-complete`
+
+Para detalhes de payload e respostas, use [FRONTEND_API_CONTRACT.md](FRONTEND_API_CONTRACT.md).
 
 ## API
 

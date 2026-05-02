@@ -1,0 +1,997 @@
+# Frontend API Contract
+
+Contrato do frontend para a plataforma `audit-go`, alinhado ao backend Go atual.
+
+Este documento separa:
+
+- **Disponivel agora**: endpoints ja implementados.
+- **Planejado**: areas que o frontend pode prever, mas ainda precisam de mocks/adapters.
+
+## Base URL
+
+Local:
+
+```text
+http://localhost:8080
+```
+
+Todas as chamadas autenticadas do frontend web devem usar cookies:
+
+```ts
+fetch("http://localhost:8080/auth/me", {
+  credentials: "include",
+});
+```
+
+## Resumo de Disponibilidade
+
+| Area | Status backend | Observacao frontend |
+| --- | --- | --- |
+| Health | Disponivel | Endpoint simples para status/dev |
+| Auth BFF Entra | Disponivel | Login via redirect, sessao por cookies |
+| CSRF | Disponivel | Obrigatorio em requests mutaveis com cookies de auth |
+| Documents metadata | Disponivel | Criar, buscar, listar por JV, deletar |
+| Upload Blob | Disponivel | URL assinada para upload direto ao Azure Blob |
+| Processing status | Parcial | Status do documento vem no payload; nao ha endpoint dedicado |
+| Storage metadata | Interno | Persistido no backend; frontend nao chama direto |
+| Outbox/jobs | Interno | Persistido no backend; frontend nao chama direto |
+| Regions CRUD | Planejado | Mockar no frontend |
+| Joint Ventures CRUD | Planejado | Mockar no frontend |
+| Memberships | Planejado | Mockar administracao de acessos |
+| Audit runs/findings | Planejado | Mockar telas ate existir backend |
+| Prompt management | Planejado | Mockar telas ate existir backend |
+
+## Quick Start do Frontend
+
+Se o objetivo for subir o frontend rapido contra o backend atual, use este fluxo.
+
+### 1. Configuração base
+
+```ts
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+```
+
+Todas as requests autenticadas do frontend web devem usar:
+
+```ts
+credentials: "include"
+```
+
+### 2. Login e bootstrap de sessão
+
+Redirecione o browser para login:
+
+```ts
+window.location.href =
+  `${API_URL}/auth/login?return_url=${encodeURIComponent(window.location.origin)}`;
+```
+
+Depois do redirect de volta ao frontend, carregue o usuário atual:
+
+```ts
+const me = await fetch(`${API_URL}/auth/me`, {
+  credentials: "include",
+});
+```
+
+### 3. Helper mínimo para API
+
+```ts
+function getCookie(name: string) {
+  return document.cookie
+    .split("; ")
+    .find((row) => row.startsWith(`${name}=`))
+    ?.split("=")[1];
+}
+
+export async function apiFetch(path: string, init: RequestInit = {}) {
+  const method = init.method?.toUpperCase() ?? "GET";
+  const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+
+  const headers = new Headers(init.headers);
+  if (mutating) {
+    headers.set("X-CSRF-Token", getCookie("audit_csrf") ?? "");
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    credentials: "include",
+    headers,
+  });
+
+  if (response.status === 401 && path !== "/auth/refresh") {
+    const refreshed = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "X-CSRF-Token": getCookie("audit_csrf") ?? "",
+      },
+    });
+
+    if (refreshed.ok) {
+      return apiFetch(path, init);
+    }
+  }
+
+  return response;
+}
+```
+
+### 4. Fluxos já implementados
+
+Auth:
+
+- `GET /auth/login`
+- `GET /auth/callback`
+- `GET /auth/me`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+
+Documents:
+
+- `POST /documents`
+- `GET /joint-ventures/{jvID}/documents`
+- `GET /documents/get?id=`
+- `DELETE /documents/delete?id=`
+
+Upload:
+
+- `POST /joint-ventures/{jvID}/documents/upload-url`
+- `POST /documents/{documentID}/upload-complete`
+
+### 5. Fluxo de upload recomendado
+
+1. Chame `POST /joint-ventures/{jvID}/documents/upload-url`.
+2. Use `upload.method`, `upload.url` e `upload.headers` para fazer o `PUT` direto no Blob.
+3. Chame `POST /documents/{documentID}/upload-complete`.
+4. Atualize a UI com o `document.status` retornado.
+
+### 6. O que ainda deve ser mockado
+
+No backend atual, ainda nao existem handlers HTTP para:
+
+- regioes
+- joint ventures CRUD
+- memberships
+- audit runs/findings
+- prompt management
+
+## Convencoes Gerais
+
+### Cookies
+
+Cookies emitidos hoje pelo backend:
+
+| Cookie | HttpOnly | Path | Uso |
+| --- | --- | --- | --- |
+| `audit_session` | Sim | `/` | Sessao opaca da aplicacao |
+| `audit_refresh` | Sim | `/auth` | Refresh token opaco e rotacionado |
+| `audit_csrf` | Nao | `/` | Token CSRF para requests mutaveis |
+
+Comportamento atual:
+
+- `Secure` e controlado por configuracao de ambiente e deve ficar ligado em producao.
+- `SameSite` default e `Lax`.
+- TTL default de `audit_session`: `15m`.
+- TTL default de `audit_refresh`: `30d`.
+- `audit_csrf` hoje e reemitido junto com login/refresh e expira junto com o refresh atual emitido pelo backend.
+
+### CSRF
+
+Requests `POST`, `PUT`, `PATCH` e `DELETE` feitos com cookies de autenticacao devem enviar:
+
+```http
+X-CSRF-Token: <valor do cookie audit_csrf>
+```
+
+O middleware CSRF atual so valida quando existe pelo menos um destes cookies:
+
+- `audit_session`
+- `audit_refresh`
+
+Isso significa:
+
+- `POST /auth/refresh` exige `audit_refresh` e tambem exige header CSRF valido.
+- endpoints mutaveis autenticados por sessao exigem `audit_session` e header CSRF valido.
+
+### Autenticacao do backend
+
+Para requests do frontend web, o fluxo esperado e cookie-based.
+
+O backend atual tambem aceita `Authorization: Bearer <token>` no middleware de auth para clientes nao-browser em endpoints protegidos. Para o frontend web, ignore esse modo e use `credentials: "include"`.
+
+### Formato de erro
+
+Handlers de aplicacao retornam JSON neste formato:
+
+```json
+{
+  "error": "message"
+}
+```
+
+Alguns erros emitidos diretamente por middleware ainda podem sair como `text/plain`.
+
+## Tipos TypeScript Base
+
+```ts
+export type Role =
+  | "admin"
+  | "region_admin"
+  | "jv_admin"
+  | "contributor"
+  | "auditor"
+  | "visitor";
+
+export type ScopeType = "system" | "region" | "joint_venture";
+
+export type Principal = {
+  ID: string;
+  Login: string;
+  Name: string;
+  Roles: Role[];
+};
+
+export type DocumentType = "contract" | "financial" | "report" | "other";
+
+export type DocumentStatus =
+  | "upload_pending"
+  | "uploaded"
+  | "registered"
+  | "queued"
+  | "processing"
+  | "parsed"
+  | "ocr_completed"
+  | "indexed"
+  | "failed"
+  | "deleted";
+
+export type AuditDocument = {
+  id: string;
+  jv_id: string;
+  name: string;
+  type: DocumentType;
+  storage_key: string;
+  uploaded_by: string;
+  uploaded_at: string;
+  status: DocumentStatus;
+  processed: boolean;
+};
+
+export type UploadTarget = {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  expires_at: string;
+};
+
+export type RequestDocumentUploadResponse = {
+  document: AuditDocument;
+  upload: UploadTarget;
+};
+
+export type ApiError = {
+  error: string;
+};
+```
+
+## Cliente Frontend Recomendado
+
+```ts
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+
+function getCookie(name: string) {
+  return document.cookie
+    .split("; ")
+    .find((row) => row.startsWith(`${name}=`))
+    ?.split("=")[1];
+}
+
+export async function apiFetch(path: string, init: RequestInit = {}) {
+  const method = init.method?.toUpperCase() ?? "GET";
+  const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+
+  const headers = new Headers(init.headers);
+  if (mutating) {
+    headers.set("X-CSRF-Token", getCookie("audit_csrf") ?? "");
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    credentials: "include",
+    headers,
+  });
+
+  if (response.status === 401 && path !== "/auth/refresh") {
+    const refreshed = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "X-CSRF-Token": getCookie("audit_csrf") ?? "",
+      },
+    });
+
+    if (refreshed.ok) {
+      return apiFetch(path, init);
+    }
+  }
+
+  return response;
+}
+```
+
+## Autenticacao
+
+O backend usa Microsoft Entra no modelo BFF:
+
+1. Frontend redireciona o browser para `GET /auth/login`.
+2. Backend redireciona para Microsoft Entra.
+3. Entra redireciona para `GET /auth/callback`.
+4. Backend cria cookies da aplicacao e redireciona para o frontend.
+5. Frontend chama APIs usando `credentials: "include"`.
+
+O frontend nao armazena access token da Microsoft.
+
+### GET `/auth/login`
+
+Inicia login com Microsoft Entra.
+
+Query params:
+
+| Nome | Obrigatorio | Descricao |
+| --- | --- | --- |
+| `return_url` | Nao | URL ou path para redirecionar apos login |
+
+Uso recomendado:
+
+```ts
+window.location.href =
+  `${API_URL}/auth/login?return_url=${encodeURIComponent(window.location.origin)}`;
+```
+
+Resposta:
+
+```http
+302 Location: https://login.microsoftonline.com/...
+```
+
+### GET `/auth/callback`
+
+Callback da Microsoft Entra. O frontend nao deve chamar diretamente.
+
+Resposta de sucesso:
+
+```http
+302 Location: <return_url>
+Set-Cookie: audit_session=...
+Set-Cookie: audit_refresh=...
+Set-Cookie: audit_csrf=...
+```
+
+Falha tipica:
+
+| Status | Motivo |
+| --- | --- |
+| `401` | Login falhou |
+
+### GET `/auth/me`
+
+Retorna o usuario autenticado.
+
+Para frontend web, chame com cookies.
+
+Request:
+
+```ts
+const response = await apiFetch("/auth/me");
+const user = (await response.json()) as Principal;
+```
+
+Resposta `200`:
+
+```json
+{
+  "ID": "entra-oid-or-login",
+  "Login": "user@example.com",
+  "Name": "User Name",
+  "Roles": ["admin"]
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Autenticado |
+| `401` | Sem sessao valida ou sem bearer valido |
+
+### POST `/auth/refresh`
+
+Rotaciona `audit_refresh`, emite novo `audit_session` e reemite `audit_csrf`.
+
+Requer:
+
+- cookie `audit_refresh`
+- header `X-CSRF-Token` valido
+
+Request:
+
+```ts
+await apiFetch("/auth/refresh", { method: "POST" });
+```
+
+Resposta `200`:
+
+```json
+{
+  "user": {
+    "ID": "entra-oid-or-login",
+    "Login": "user@example.com",
+    "Name": "User Name",
+    "Roles": ["admin"]
+  }
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Refresh aceito |
+| `401` | Refresh ausente, expirado, revogado ou invalido |
+| `403` | CSRF ausente ou invalido |
+
+### POST `/auth/logout`
+
+Revoga sessao e refresh token atuais quando presentes e limpa os cookies do navegador.
+
+Observacao: o backend atual le `audit_refresh` no path `/auth`, por isso o cookie de refresh esta nesse path hoje.
+
+Request:
+
+```ts
+await apiFetch("/auth/logout", { method: "POST" });
+```
+
+Resposta `200`:
+
+```json
+{
+  "status": "logged_out"
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Logout executado e cookies limpos |
+| `403` | CSRF ausente ou invalido |
+
+## Health
+
+### GET `/health`
+
+Endpoint simples de liveness.
+
+Resposta `200`:
+
+```text
+ok
+```
+
+## Documents
+
+Todos os endpoints abaixo exigem autenticacao.
+
+Permissoes esperadas:
+
+| Operacao | Roles aceitas no escopo da JV/regiao/sistema |
+| --- | --- |
+| Criar documento | `admin`, `region_admin`, `jv_admin`, `contributor` |
+| Ler documento | `admin`, `region_admin`, `jv_admin`, `contributor`, `auditor`, `visitor` |
+| Deletar documento | `admin`, `region_admin`, `jv_admin` |
+
+Escopos aceitos:
+
+| Scope | Descricao |
+| --- | --- |
+| `system` | Acesso global |
+| `region` | Acesso a todas as JVs da regiao |
+| `joint_venture` | Acesso a uma JV especifica |
+
+### Status de Documento
+
+| Status | Significado UI |
+| --- | --- |
+| `upload_pending` | Upload ainda nao confirmado |
+| `uploaded` | Blob identificado mas ainda nao enfileirado |
+| `registered` | Metadados registrados |
+| `queued` | Job de processamento criado |
+| `processing` | Worker processando |
+| `parsed` | Texto e tabelas extraidos |
+| `ocr_completed` | OCR finalizado |
+| `indexed` | Conteudo indexado |
+| `failed` | Falha no processamento |
+| `deleted` | Documento removido |
+
+### POST `/documents`
+
+Cria o registro de metadados de um documento.
+
+Este endpoint nao faz upload binario. Ele espera um `storage_key` ja definido pelo fluxo do frontend.
+
+Ao criar o documento, o backend tambem:
+
+- persiste metadados em `storage_objects`;
+- registra evento de auditoria;
+- cria outbox event `DocumentUploaded`;
+- cria job idempotente de parse;
+- retorna o documento com `status: "queued"`.
+
+Body:
+
+```json
+{
+  "jv_id": "00000000-0000-0000-0000-000000000000",
+  "name": "contract.pdf",
+  "type": "contract",
+  "storage_key": "tenants/demo/regions/latam/jvs/jv-001/documents/doc-001/raw/contract.pdf"
+}
+```
+
+Request:
+
+```ts
+const response = await apiFetch("/documents", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    jv_id: selectedJvId,
+    name: file.name,
+    type: "contract",
+    storage_key:
+      "tenants/demo/regions/latam/jvs/jv-001/documents/doc-001/raw/contract.pdf",
+  }),
+});
+
+const document = (await response.json()) as AuditDocument;
+```
+
+Resposta `201`:
+
+```json
+{
+  "id": "document-uuid",
+  "jv_id": "jv-uuid",
+  "name": "contract.pdf",
+  "type": "contract",
+  "storage_key": "tenants/demo/regions/latam/jvs/jv-001/documents/doc-001/raw/contract.pdf",
+  "uploaded_by": "user@example.com",
+  "uploaded_at": "2026-05-02T12:00:00Z",
+  "status": "queued",
+  "processed": false
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `201` | Documento criado |
+| `400` | Body invalido, `jv_id` invalido ou tipo invalido |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV |
+| `500` | Erro interno |
+
+### GET `/documents/get?id=<document_id>`
+
+Busca um documento por ID.
+
+Request:
+
+```ts
+const response = await apiFetch(`/documents/get?id=${documentId}`);
+const document = (await response.json()) as AuditDocument;
+```
+
+Resposta `200`:
+
+```json
+{
+  "id": "document-uuid",
+  "jv_id": "jv-uuid",
+  "name": "contract.pdf",
+  "type": "contract",
+  "storage_key": "tenants/demo/regions/latam/jvs/jv-001/documents/doc-001/raw/contract.pdf",
+  "uploaded_by": "user@example.com",
+  "uploaded_at": "2026-05-02T12:00:00Z",
+  "status": "queued",
+  "processed": false
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Documento encontrado |
+| `400` | `id` ausente |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV |
+| `404` | Documento nao encontrado |
+
+### GET `/joint-ventures/{jvID}/documents`
+
+Lista documentos de uma joint venture.
+
+Request:
+
+```ts
+const response = await apiFetch(`/joint-ventures/${jvId}/documents`);
+const documents = (await response.json()) as AuditDocument[];
+```
+
+Resposta `200`:
+
+```json
+[
+  {
+    "id": "document-uuid",
+    "jv_id": "jv-uuid",
+    "name": "contract.pdf",
+    "type": "contract",
+    "storage_key": "tenants/demo/regions/latam/jvs/jv-001/documents/doc-001/raw/contract.pdf",
+    "uploaded_by": "user@example.com",
+    "uploaded_at": "2026-05-02T12:00:00Z",
+    "status": "queued",
+    "processed": false
+  }
+]
+```
+
+Resposta vazia:
+
+```json
+[]
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Lista retornada |
+| `400` | `jvID` ausente |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV |
+
+### DELETE `/documents/delete?id=<document_id>`
+
+Remove um documento por ID e registra evento de auditoria.
+
+Request:
+
+```ts
+await apiFetch(`/documents/delete?id=${documentId}`, {
+  method: "DELETE",
+});
+```
+
+Resposta `200`:
+
+```json
+{
+  "status": "deleted",
+  "id": "document-uuid"
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Documento removido |
+| `400` | `id` ausente |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV ou CSRF invalido |
+| `404` | Documento nao encontrado |
+
+## Upload Blob
+
+Fluxo implementado hoje:
+
+1. Usuario escolhe arquivo.
+2. Frontend chama `POST /joint-ventures/{jvID}/documents/upload-url`.
+3. Backend cria documento com `status: "upload_pending"` e retorna a URL assinada.
+4. Frontend faz `PUT` direto no Azure Blob usando a URL assinada.
+5. Frontend chama `POST /documents/{documentID}/upload-complete`.
+6. Backend valida o blob, persiste metadados tecnicos e marca o documento como `queued`.
+
+### POST `/joint-ventures/{jvID}/documents/upload-url`
+
+Cria um documento pendente e devolve o alvo para upload direto.
+
+Body aceito:
+
+```json
+{
+  "filename": "contract.pdf",
+  "name": "contract.pdf",
+  "type": "contract",
+  "content_type": "application/pdf",
+  "size_bytes": 123456
+}
+```
+
+Observacoes:
+
+- `filename` e o campo principal.
+- se `filename` vier vazio, o backend usa `name` como fallback.
+- `size_bytes` e opcional.
+
+Request:
+
+```ts
+const response = await apiFetch(`/joint-ventures/${jvId}/documents/upload-url`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    filename: file.name,
+    type: "contract",
+    content_type: file.type || "application/octet-stream",
+    size_bytes: file.size,
+  }),
+});
+
+const payload = (await response.json()) as RequestDocumentUploadResponse;
+```
+
+Resposta `201`:
+
+```json
+{
+  "document": {
+    "id": "document-uuid",
+    "jv_id": "jv-uuid",
+    "name": "contract.pdf",
+    "type": "contract",
+    "storage_key": "jvs/{jv_id}/documents/{document_id}/raw/contract.pdf",
+    "uploaded_by": "user@example.com",
+    "uploaded_at": "2026-05-02T12:00:00Z",
+    "status": "upload_pending",
+    "processed": false
+  },
+  "upload": {
+    "method": "PUT",
+    "url": "https://account.blob.core.windows.net/container/key?sas=...",
+    "headers": {
+      "x-ms-blob-type": "BlockBlob",
+      "Content-Type": "application/pdf",
+      "x-ms-blob-content-type": "application/pdf"
+    },
+    "expires_at": "2026-05-02T12:15:00Z"
+  }
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `201` | URL de upload criada |
+| `400` | `jvID` invalido, filename invalido, tipo invalido ou `size_bytes` invalido |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV ou CSRF invalido |
+| `503` | Storage Blob nao configurado |
+| `500` | Erro interno |
+
+### PUT direto na URL assinada do Blob
+
+O upload binario nao passa pelo backend Go.
+
+Use exatamente o metodo, a URL e os headers devolvidos em `upload`.
+
+Exemplo:
+
+```ts
+await fetch(payload.upload.url, {
+  method: payload.upload.method,
+  headers: payload.upload.headers,
+  body: file,
+});
+```
+
+### POST `/documents/{documentID}/upload-complete`
+
+Confirma o upload, valida o blob no storage e enfileira processamento.
+
+Body opcional:
+
+```json
+{
+  "size_bytes": 123456
+}
+```
+
+Se `size_bytes` for enviado e nao bater com o blob real, o backend retorna erro.
+
+Request:
+
+```ts
+const response = await apiFetch(`/documents/${documentId}/upload-complete`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    size_bytes: file.size,
+  }),
+});
+
+const document = (await response.json()) as AuditDocument;
+```
+
+Resposta `200`:
+
+```json
+{
+  "id": "document-uuid",
+  "jv_id": "jv-uuid",
+  "name": "contract.pdf",
+  "type": "contract",
+  "storage_key": "jvs/{jv_id}/documents/{document_id}/raw/contract.pdf",
+  "uploaded_by": "user@example.com",
+  "uploaded_at": "2026-05-02T12:00:00Z",
+  "status": "queued",
+  "processed": false
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Upload confirmado e documento enfileirado |
+| `400` | `documentID` invalido, body invalido, blob vazio ou tamanho divergente |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV ou CSRF invalido |
+| `404` | Documento nao encontrado |
+| `409` | Blob ainda nao encontrado no storage |
+| `503` | Azure Blob Storage nao configurado no backend |
+| `500` | Erro interno |
+
+## Areas Planejadas
+
+As secoes abaixo ainda nao possuem handlers HTTP implementados no backend atual.
+
+### Regioes e Joint Ventures
+
+Tipos recomendados:
+
+```ts
+export type Region = {
+  id: string;
+  code: string;
+  name: string;
+  created_at: string;
+};
+
+export type JointVentureStatus = "draft" | "active" | "suspended" | "closed";
+
+export type JointVenture = {
+  id: string;
+  region_id: string;
+  name: string;
+  parties: string[];
+  status: JointVentureStatus;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  metadata?: Record<string, string>;
+};
+```
+
+Endpoints planejados:
+
+```http
+GET    /regions
+POST   /regions
+GET    /regions/{regionID}
+PUT    /regions/{regionID}
+DELETE /regions/{regionID}
+
+GET    /regions/{regionID}/joint-ventures
+GET    /joint-ventures
+POST   /joint-ventures
+GET    /joint-ventures/{jvID}
+PUT    /joint-ventures/{jvID}
+DELETE /joint-ventures/{jvID}
+```
+
+### Memberships
+
+Tipo recomendado:
+
+```ts
+export type Membership = {
+  id: string;
+  user_login: string;
+  role: Role;
+  scope_type: ScopeType;
+  scope_id: string | null;
+  created_at: string;
+};
+```
+
+Endpoints planejados:
+
+```http
+GET    /memberships
+POST   /memberships
+DELETE /memberships/{membershipID}
+GET    /users
+```
+
+### Prompt Management
+
+Endpoints planejados:
+
+```http
+GET    /prompts
+POST   /prompts
+GET    /prompts/{promptID}
+POST   /prompts/{promptID}/versions
+GET    /prompts/{promptID}/versions
+POST   /prompt-versions/{versionID}/test
+POST   /prompt-versions/{versionID}/approve
+POST   /prompt-versions/{versionID}/deprecate
+GET    /prompt-runs?audit_run_id=
+```
+
+### Audit Runs e Findings
+
+Tipos recomendados:
+
+```ts
+export type AuditRunStatus =
+  | "requested"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type FindingSeverity = "low" | "medium" | "high" | "critical";
+
+export type AuditRun = {
+  id: string;
+  jv_id: string;
+  status: AuditRunStatus;
+  requested_by: string;
+  started_at?: string;
+  completed_at?: string;
+  failed_at?: string;
+  error_message?: string;
+  created_at: string;
+};
+
+export type AuditFinding = {
+  id: string;
+  audit_run_id: string;
+  document_id: string;
+  prompt_run_id?: string;
+  category: string;
+  severity: FindingSeverity;
+  title: string;
+  description: string;
+  evidence: string;
+  page_number?: number;
+  chunk_id?: string;
+  confidence?: number;
+  source: "ai" | "rule" | "manual";
+  created_at: string;
+};
+```

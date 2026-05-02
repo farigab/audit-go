@@ -20,6 +20,7 @@ __debug_bin.exe
 # cache do Go
 *.test
 *.out
+.gocache/
 
 # arquivos do sistema
 .DS_Store
