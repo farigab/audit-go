@@ -33,13 +33,15 @@ func (r *Repository) Save(ctx context.Context, doc documents.Document) error {
 			storage_key,
 			uploaded_by,
 			uploaded_at,
+			status,
 			processed
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		ON CONFLICT (id) DO UPDATE SET
 			name        = EXCLUDED.name,
 			type        = EXCLUDED.type,
 			storage_key = EXCLUDED.storage_key,
+			status      = EXCLUDED.status,
 			processed   = EXCLUDED.processed
 	`
 
@@ -53,6 +55,7 @@ func (r *Repository) Save(ctx context.Context, doc documents.Document) error {
 		doc.StorageKey,
 		doc.UploadedBy,
 		doc.UploadedAt,
+		string(documents.NormalizeStatus(doc.Status)),
 		doc.Processed,
 	)
 	if err != nil {
@@ -73,6 +76,7 @@ func (r *Repository) FindByID(ctx context.Context, id string) (*documents.Docume
 			storage_key,
 			uploaded_by,
 			uploaded_at,
+			status,
 			processed
 		FROM documents
 		WHERE id = $1
@@ -94,6 +98,7 @@ func (r *Repository) FindByJVID(ctx context.Context, jvID string) ([]documents.D
 			storage_key,
 			uploaded_by,
 			uploaded_at,
+			status,
 			processed
 		FROM documents
 		WHERE jv_id = $1
@@ -120,6 +125,7 @@ func (r *Repository) FindUnprocessed(ctx context.Context) ([]documents.Document,
 			storage_key,
 			uploaded_by,
 			uploaded_at,
+			status,
 			processed
 		FROM documents
 		WHERE processed = FALSE
@@ -140,7 +146,8 @@ func (r *Repository) FindUnprocessed(ctx context.Context) ([]documents.Document,
 func (r *Repository) MarkProcessed(ctx context.Context, id string) error {
 	const query = `
 		UPDATE documents
-		SET processed = TRUE
+		SET processed = TRUE,
+			status = 'parsed'
 		WHERE id = $1
 	`
 
@@ -185,6 +192,7 @@ func scanDocument(row *sql.Row) (*documents.Document, error) {
 		&doc.StorageKey,
 		&doc.UploadedBy,
 		&uploadedAt,
+		&doc.Status,
 		&doc.Processed,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -201,7 +209,7 @@ func scanDocument(row *sql.Row) (*documents.Document, error) {
 }
 
 func scanDocuments(rows *sql.Rows) ([]documents.Document, error) {
-	var docs []documents.Document
+	docs := make([]documents.Document, 0)
 
 	for rows.Next() {
 		var doc documents.Document
@@ -216,6 +224,7 @@ func scanDocuments(rows *sql.Rows) ([]documents.Document, error) {
 			&doc.StorageKey,
 			&doc.UploadedBy,
 			&uploadedAt,
+			&doc.Status,
 			&doc.Processed,
 		); err != nil {
 			return nil, fmt.Errorf("scanning document row: %w", err)

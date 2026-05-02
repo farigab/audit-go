@@ -21,6 +21,7 @@ type Handler struct {
 	createDocument app.CreateDocumentUseCase
 	deleteDocument app.DeleteDocumentUseCase
 	getDocument    app.GetDocumentUseCase
+	listDocuments  app.ListDocumentsByJVUseCase
 }
 
 // NewHandler creates a document handler wired with the provided use cases.
@@ -29,12 +30,14 @@ func NewHandler(
 	create app.CreateDocumentUseCase,
 	del app.DeleteDocumentUseCase,
 	get app.GetDocumentUseCase,
+	list app.ListDocumentsByJVUseCase,
 ) Handler {
 	return Handler{
 		log:            log,
 		createDocument: create,
 		deleteDocument: del,
 		getDocument:    get,
+		listDocuments:  list,
 	}
 }
 
@@ -43,6 +46,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, auth func(nethttp.Handler) nethttp.Ha
 	mux.Handle("POST /documents", auth(nethttp.HandlerFunc(h.CreateDocument)))
 	mux.Handle("GET /documents/get", auth(nethttp.HandlerFunc(h.GetDocument)))
 	mux.Handle("DELETE /documents/delete", auth(nethttp.HandlerFunc(h.DeleteDocument)))
+	mux.Handle("GET /joint-ventures/{jvID}/documents", auth(nethttp.HandlerFunc(h.ListDocumentsByJV)))
 }
 
 // CreateDocument handles POST /documents.
@@ -103,6 +107,31 @@ func (h Handler) GetDocument(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	if err = httpx.WriteJSON(w, nethttp.StatusOK, doc); err != nil {
+		h.logWriteError(r, err)
+	}
+}
+
+// ListDocumentsByJV handles GET /joint-ventures/{jvID}/documents.
+func (h Handler) ListDocumentsByJV(w nethttp.ResponseWriter, r *nethttp.Request) {
+	jvID := r.PathValue("jvID")
+	if jvID == "" {
+		h.writeError(w, r, nethttp.StatusBadRequest, "jvID is required")
+		return
+	}
+
+	principal, ok := access.PrincipalFromContext(r.Context())
+	if !ok {
+		h.writeError(w, r, nethttp.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	docs, err := h.listDocuments.Execute(r.Context(), principal, jvID)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	if err = httpx.WriteJSON(w, nethttp.StatusOK, docs); err != nil {
 		h.logWriteError(r, err)
 	}
 }

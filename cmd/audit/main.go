@@ -17,6 +17,7 @@ import (
 	documentsapp "audit-go/internal/features/documents/app"
 	documentshttp "audit-go/internal/features/documents/http"
 	documentpostgres "audit-go/internal/features/documents/postgres"
+	processingpostgres "audit-go/internal/features/processing/postgres"
 	processingworker "audit-go/internal/features/processing/worker"
 	"audit-go/internal/platform/config"
 	"audit-go/internal/platform/httpx"
@@ -24,6 +25,7 @@ import (
 	"audit-go/internal/platform/logger"
 	platformpostgres "audit-go/internal/platform/postgres"
 	"audit-go/internal/platform/security"
+	"audit-go/internal/platform/storage"
 )
 
 func main() {
@@ -44,6 +46,8 @@ func main() {
 	// repositories
 	docRepo := documentpostgres.NewRepository(db)
 	auditRepo := auditpostgres.NewRepository(db)
+	storageRepo := storage.NewRepository(db)
+	processingRepo := processingpostgres.NewRepository(db)
 	authorizer := accesspostgres.NewAuthorizer(db)
 	sessionRepo := accesspostgres.NewSessionRepository(db)
 	transactor := platformpostgres.NewTransactor(db)
@@ -70,10 +74,12 @@ func main() {
 
 	// use cases
 	createDoc := documentsapp.CreateDocumentUseCase{
-		DocRepo:    docRepo,
-		AuditRepo:  auditRepo,
-		Authorizer: authorizer,
-		Transactor: transactor,
+		DocRepo:        docRepo,
+		AuditRepo:      auditRepo,
+		StorageRepo:    storageRepo,
+		ProcessingRepo: processingRepo,
+		Authorizer:     authorizer,
+		Transactor:     transactor,
 	}
 
 	deleteDoc := documentsapp.DeleteDocumentUseCase{
@@ -84,6 +90,11 @@ func main() {
 	}
 
 	getDoc := documentsapp.GetDocumentUseCase{
+		DocRepo:    docRepo,
+		Authorizer: authorizer,
+	}
+
+	listDocsByJV := documentsapp.ListDocumentsByJVUseCase{
 		DocRepo:    docRepo,
 		Authorizer: authorizer,
 	}
@@ -105,7 +116,7 @@ func main() {
 	documentshttp.RegisterRoutes(
 		mux,
 		auth,
-		documentshttp.NewHandler(log, createDoc, deleteDoc, getDoc),
+		documentshttp.NewHandler(log, createDoc, deleteDoc, getDoc, listDocsByJV),
 	)
 
 	var app http.Handler = mux

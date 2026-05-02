@@ -3,6 +3,22 @@ package documents
 
 import "time"
 
+// Status describes the document processing lifecycle.
+type Status string
+
+const (
+	StatusUploadPending Status = "upload_pending"
+	StatusUploaded      Status = "uploaded"
+	StatusRegistered    Status = "registered"
+	StatusQueued        Status = "queued"
+	StatusProcessing    Status = "processing"
+	StatusParsed        Status = "parsed"
+	StatusOCRCompleted  Status = "ocr_completed"
+	StatusIndexed       Status = "indexed"
+	StatusFailed        Status = "failed"
+	StatusDeleted       Status = "deleted"
+)
+
 // Type identifies the document type.
 type Type string
 
@@ -22,6 +38,7 @@ type Document struct {
 	StorageKey string    `json:"storage_key"`
 	UploadedBy string    `json:"uploaded_by"`
 	UploadedAt time.Time `json:"uploaded_at"`
+	Status     Status    `json:"status"`
 	Processed  bool      `json:"processed"`
 }
 
@@ -41,6 +58,14 @@ func NormalizeType(t Type) Type {
 		return TypeOther
 	}
 	return t
+}
+
+// NormalizeStatus returns StatusRegistered when no status was supplied.
+func NormalizeStatus(s Status) Status {
+	if s == "" {
+		return StatusRegistered
+	}
+	return s
 }
 
 // IsProcessed reports whether the document has been processed.

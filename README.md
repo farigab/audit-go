@@ -124,6 +124,7 @@ psql "$DB_URL" -f db/migrations/005_create_access_memberships.sql
 psql "$DB_URL" -f db/migrations/006_create_documents.sql
 psql "$DB_URL" -f db/migrations/007_create_audit_events.sql
 psql "$DB_URL" -f db/migrations/008_enable_pgvector.sql
+psql "$DB_URL" -f db/migrations/009_create_storage_and_processing.sql
 ```
 
 ## API
@@ -156,6 +157,7 @@ Authenticated document endpoints:
 POST   /documents
 GET    /documents/get?id=
 DELETE /documents/delete?id=
+GET    /joint-ventures/{jvID}/documents
 ```
 
 `POST /documents`:
@@ -170,6 +172,8 @@ DELETE /documents/delete?id=
 ```
 
 Document types: `contract`, `financial`, `report`, `other`.
+
+`POST /documents` creates the document with `status: "queued"` and, in the same PostgreSQL transaction, stores raw blob metadata in `storage_objects`, records the audit event, writes a `DocumentUploaded` outbox event, and creates an idempotent `parse_document:{document_id}:v1` processing job.
 
 ## Python Service
 
@@ -220,8 +224,6 @@ uvicorn main:app --reload --port 8000
 
 ## Next Steps
 
-- Add BFF login/callback/session endpoints for Entra authorization code flow.
-- Store opaque HttpOnly application sessions and rotating refresh tokens.
-- Add CSRF protection for cookie-authenticated mutating requests.
-- Implement processing jobs/outbox so the Go worker calls Python and persists chunks.
+- Add Azure Blob SAS upload URL and upload confirmation.
+- Make the Go worker consume `processing_jobs`, call Python, and persist parsed artifacts.
 - Add region and joint venture CRUD endpoints.

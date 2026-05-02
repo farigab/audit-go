@@ -20,7 +20,6 @@ import (
 type Allowlist struct {
 	origins     []string
 	legacyHosts []string
-	raw         string
 }
 
 // Parse builds an Allowlist from a comma-separated string of origins.
@@ -59,7 +58,7 @@ func Parse(raw string) Allowlist {
 		legacyHosts = append(legacyHosts, legacyHost)
 	}
 
-	return Allowlist{origins: origins, legacyHosts: legacyHosts, raw: raw}
+	return Allowlist{origins: origins, legacyHosts: legacyHosts}
 }
 
 // Empty reports whether no origins are configured.
@@ -92,20 +91,6 @@ func (a Allowlist) Allows(originHeader string) bool {
 	}
 	return false
 }
-
-// AllowedOriginFor returns the exact Access-Control-Allow-Origin value.
-func (a Allowlist) AllowedOriginFor(originHeader string) string {
-	if !a.Allows(originHeader) {
-		return ""
-	}
-	if originHeader == "" {
-		return "*"
-	}
-	return originHeader
-}
-
-// Raw returns the original unparsed string.
-func (a Allowlist) Raw() string { return a.raw }
 
 func normalizeAllowlistEntry(raw string) (origin string, legacyHost string) {
 	if raw == "" {
