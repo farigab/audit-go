@@ -116,13 +116,14 @@ docker compose up --build
 Run migrations in order:
 
 ```bash
-psql "$DB_URL" -f db/migrations/001_create_joint_ventures.sql
-psql "$DB_URL" -f db/migrations/002_create_documents.sql
-psql "$DB_URL" -f db/migrations/003_create_audit_events.sql
-psql "$DB_URL" -f db/migrations/004_enable_pgvector.sql
-psql "$DB_URL" -f db/migrations/005_create_users.sql
-psql "$DB_URL" -f db/migrations/006_create_access_sessions.sql
-psql "$DB_URL" -f db/migrations/007_create_regions_and_access_memberships.sql
+psql "$DB_URL" -f db/migrations/001_create_regions.sql
+psql "$DB_URL" -f db/migrations/002_create_users.sql
+psql "$DB_URL" -f db/migrations/003_create_joint_ventures.sql
+psql "$DB_URL" -f db/migrations/004_create_access_sessions.sql
+psql "$DB_URL" -f db/migrations/005_create_access_memberships.sql
+psql "$DB_URL" -f db/migrations/006_create_documents.sql
+psql "$DB_URL" -f db/migrations/007_create_audit_events.sql
+psql "$DB_URL" -f db/migrations/008_enable_pgvector.sql
 ```
 
 ## API

@@ -54,8 +54,9 @@ type RefreshTokenRecord struct {
 
 // UserProfile is the application user projection maintained from Entra claims.
 type UserProfile struct {
-	Login string
-	Name  string
+	Login    string
+	EntraOID string
+	Name     string
 }
 
 type store interface {
@@ -209,7 +210,11 @@ func (s *Service) CompleteCallback(ctx context.Context, code, state string) (*Au
 		name = login
 	}
 
-	if err = s.store.UpsertUser(ctx, UserProfile{Login: login, Name: name}); err != nil {
+	if err = s.store.UpsertUser(ctx, UserProfile{
+		Login:    login,
+		EntraOID: claims.OID,
+		Name:     name,
+	}); err != nil {
 		return nil, fmt.Errorf("upserting user: %w", err)
 	}
 

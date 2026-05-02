@@ -34,6 +34,9 @@ func New(id, regionID, name, createdBy string, parties []string) (JointVenture, 
 	if name == "" {
 		return JointVenture{}, errors.New("joint venture name is required")
 	}
+	if regionID == "" {
+		return JointVenture{}, errors.New("joint venture region is required")
+	}
 	if len(parties) < 2 {
 		return JointVenture{}, errors.New("a joint venture requires at least two parties")
 	}

@@ -76,13 +76,15 @@ func (r *SessionRepository) ConsumeAuthState(
 // UpsertUser creates or updates the application user projected from Entra.
 func (r *SessionRepository) UpsertUser(ctx context.Context, user accessapp.UserProfile) error {
 	const query = `
-		INSERT INTO users (login, name)
-		VALUES ($1, $2)
+		INSERT INTO users (login, entra_oid, name)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (login) DO UPDATE SET
-			name = EXCLUDED.name
+			entra_oid = EXCLUDED.entra_oid,
+			name = EXCLUDED.name,
+			updated_at = NOW()
 	`
 
-	_, err := r.db.ExecContext(ctx, query, user.Login, user.Name)
+	_, err := r.db.ExecContext(ctx, query, user.Login, nullableString(user.EntraOID), user.Name)
 	if err != nil {
 		return fmt.Errorf("upserting user: %w", err)
 	}
@@ -94,27 +96,39 @@ func (r *SessionRepository) PrincipalByLogin(ctx context.Context, login string) 
 	const query = `
 		SELECT
 			u.login,
+			COALESCE(u.entra_oid, ''),
 			u.name,
 			COALESCE(array_remove(array_agg(DISTINCT m.role), NULL), ARRAY[]::text[])
 		FROM users u
 		LEFT JOIN access_memberships m ON m.user_login = u.login
 		WHERE u.login = $1
-		GROUP BY u.login, u.name
+		GROUP BY u.login, u.entra_oid, u.name
 	`
 
 	var principal access.Principal
+	var entraOID string
 	var roles pq.StringArray
-	err := r.db.QueryRowContext(ctx, query, login).Scan(&principal.Login, &principal.Name, &roles)
+	err := r.db.QueryRowContext(ctx, query, login).Scan(&principal.Login, &entraOID, &principal.Name, &roles)
 	if errors.Is(err, sql.ErrNoRows) {
 		return access.Principal{}, errors.New("user not found")
 	}
 	if err != nil {
 		return access.Principal{}, fmt.Errorf("loading principal: %w", err)
 	}
-	principal.ID = principal.Login
+	principal.ID = entraOID
+	if principal.ID == "" {
+		principal.ID = principal.Login
+	}
 	principal.Roles = access.RolesFromStrings([]string(roles))
 
 	return principal, nil
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 // CreateSession stores an opaque application session.
