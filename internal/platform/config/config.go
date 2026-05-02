@@ -16,6 +16,11 @@ type Config struct {
 	PythonServiceURL string
 	Port             string
 	AllowedOrigins   string
+	UploadURLTTL     time.Duration
+
+	AzureStorageAccountName string
+	AzureStorageContainer   string
+	AzureStorageEndpoint    string
 
 	// Microsoft Entra ID (Azure AD)
 	EntraTenantID     string
@@ -41,15 +46,20 @@ func Load() *Config {
 	}
 
 	return &Config{
-		DBurl:             dbURL,
-		LogLevel:          lvl,
-		PythonServiceURL:  defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000"),
-		Port:              defaultString(os.Getenv("PORT"), ":8080"),
-		AllowedOrigins:    defaultString(os.Getenv("ALLOWED_ORIGINS"), ""),
-		EntraTenantID:     os.Getenv("ENTRA_TENANT_ID"),
-		EntraClientID:     os.Getenv("ENTRA_CLIENT_ID"),
-		EntraClientSecret: os.Getenv("ENTRA_CLIENT_SECRET"),
-		EntraRedirectURL:  defaultString(os.Getenv("ENTRA_REDIRECT_URL"), "http://localhost:8080/auth/callback"),
+		DBurl:            dbURL,
+		LogLevel:         lvl,
+		PythonServiceURL: defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000"),
+		Port:             defaultString(os.Getenv("PORT"), ":8080"),
+		AllowedOrigins:   defaultString(os.Getenv("ALLOWED_ORIGINS"), ""),
+		UploadURLTTL:     defaultDuration(os.Getenv("DOCUMENT_UPLOAD_URL_TTL"), 15*time.Minute),
+
+		AzureStorageAccountName: os.Getenv("AZURE_STORAGE_ACCOUNT_NAME"),
+		AzureStorageContainer:   defaultString(os.Getenv("AZURE_STORAGE_BLOB_CONTAINER"), "documents"),
+		AzureStorageEndpoint:    os.Getenv("AZURE_STORAGE_ENDPOINT"),
+		EntraTenantID:           os.Getenv("ENTRA_TENANT_ID"),
+		EntraClientID:           os.Getenv("ENTRA_CLIENT_ID"),
+		EntraClientSecret:       os.Getenv("ENTRA_CLIENT_SECRET"),
+		EntraRedirectURL:        defaultString(os.Getenv("ENTRA_REDIRECT_URL"), "http://localhost:8080/auth/callback"),
 
 		AuthSuccessRedirectURL: defaultString(os.Getenv("AUTH_SUCCESS_REDIRECT_URL"), "http://localhost:5173"),
 		SessionTTL:             defaultDuration(os.Getenv("APP_SESSION_TTL"), 15*time.Minute),

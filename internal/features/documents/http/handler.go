@@ -4,6 +4,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	nethttp "net/http"
 
 	"github.com/rs/zerolog"
@@ -17,33 +18,41 @@ import (
 
 // Handler handles document endpoints.
 type Handler struct {
-	log            zerolog.Logger
-	createDocument app.CreateDocumentUseCase
-	deleteDocument app.DeleteDocumentUseCase
-	getDocument    app.GetDocumentUseCase
-	listDocuments  app.ListDocumentsByJVUseCase
+	log                    zerolog.Logger
+	createDocument         app.CreateDocumentUseCase
+	requestDocumentUpload  app.RequestDocumentUploadUseCase
+	completeDocumentUpload app.CompleteDocumentUploadUseCase
+	deleteDocument         app.DeleteDocumentUseCase
+	getDocument            app.GetDocumentUseCase
+	listDocuments          app.ListDocumentsByJVUseCase
 }
 
 // NewHandler creates a document handler wired with the provided use cases.
 func NewHandler(
 	log zerolog.Logger,
 	create app.CreateDocumentUseCase,
+	requestUpload app.RequestDocumentUploadUseCase,
+	completeUpload app.CompleteDocumentUploadUseCase,
 	del app.DeleteDocumentUseCase,
 	get app.GetDocumentUseCase,
 	list app.ListDocumentsByJVUseCase,
 ) Handler {
 	return Handler{
-		log:            log,
-		createDocument: create,
-		deleteDocument: del,
-		getDocument:    get,
-		listDocuments:  list,
+		log:                    log,
+		createDocument:         create,
+		requestDocumentUpload:  requestUpload,
+		completeDocumentUpload: completeUpload,
+		deleteDocument:         del,
+		getDocument:            get,
+		listDocuments:          list,
 	}
 }
 
 // RegisterRoutes wires authenticated document routes.
 func RegisterRoutes(mux *nethttp.ServeMux, auth func(nethttp.Handler) nethttp.Handler, h Handler) {
 	mux.Handle("POST /documents", auth(nethttp.HandlerFunc(h.CreateDocument)))
+	mux.Handle("POST /joint-ventures/{jvID}/documents/upload-url", auth(nethttp.HandlerFunc(h.RequestDocumentUpload)))
+	mux.Handle("POST /documents/{documentID}/upload-complete", auth(nethttp.HandlerFunc(h.CompleteDocumentUpload)))
 	mux.Handle("GET /documents/get", auth(nethttp.HandlerFunc(h.GetDocument)))
 	mux.Handle("DELETE /documents/delete", auth(nethttp.HandlerFunc(h.DeleteDocument)))
 	mux.Handle("GET /joint-ventures/{jvID}/documents", auth(nethttp.HandlerFunc(h.ListDocumentsByJV)))
@@ -82,6 +91,98 @@ func (h Handler) CreateDocument(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	if err = httpx.WriteJSON(w, nethttp.StatusCreated, doc); err != nil {
+		h.logWriteError(r, err)
+	}
+}
+
+// RequestDocumentUpload handles POST /joint-ventures/{jvID}/documents/upload-url.
+func (h Handler) RequestDocumentUpload(w nethttp.ResponseWriter, r *nethttp.Request) {
+	jvID := r.PathValue("jvID")
+	if jvID == "" {
+		h.writeError(w, r, nethttp.StatusBadRequest, "jvID is required")
+		return
+	}
+
+	var body struct {
+		Filename    string         `json:"filename"`
+		Name        string         `json:"name"`
+		Type        documents.Type `json:"type"`
+		ContentType string         `json:"content_type"`
+		SizeBytes   *int64         `json:"size_bytes"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeError(w, r, nethttp.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	filename := body.Filename
+	if filename == "" {
+		filename = body.Name
+	}
+
+	principal, ok := access.PrincipalFromContext(r.Context())
+	if !ok {
+		h.writeError(w, r, nethttp.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	output, err := h.requestDocumentUpload.Execute(r.Context(), principal, app.RequestDocumentUploadInput{
+		JVID:        jvID,
+		RequestID:   contextx.Get(r.Context(), contextx.RequestIDKey),
+		Filename:    filename,
+		Type:        body.Type,
+		ContentType: body.ContentType,
+		SizeBytes:   body.SizeBytes,
+	})
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	if err = httpx.WriteJSON(w, nethttp.StatusCreated, output); err != nil {
+		h.logWriteError(r, err)
+	}
+}
+
+// CompleteDocumentUpload handles POST /documents/{documentID}/upload-complete.
+func (h Handler) CompleteDocumentUpload(w nethttp.ResponseWriter, r *nethttp.Request) {
+	documentID := r.PathValue("documentID")
+	if documentID == "" {
+		h.writeError(w, r, nethttp.StatusBadRequest, "documentID is required")
+		return
+	}
+
+	var body struct {
+		SizeBytes *int64 `json:"size_bytes"`
+	}
+
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if !errors.Is(err, io.EOF) {
+				h.writeError(w, r, nethttp.StatusBadRequest, "invalid request body")
+				return
+			}
+		}
+	}
+
+	principal, ok := access.PrincipalFromContext(r.Context())
+	if !ok {
+		h.writeError(w, r, nethttp.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	doc, err := h.completeDocumentUpload.Execute(r.Context(), principal, app.CompleteDocumentUploadInput{
+		DocumentID: documentID,
+		RequestID:  contextx.Get(r.Context(), contextx.RequestIDKey),
+		SizeBytes:  body.SizeBytes,
+	})
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	if err = httpx.WriteJSON(w, nethttp.StatusOK, doc); err != nil {
 		h.logWriteError(r, err)
 	}
 }
@@ -172,6 +273,10 @@ func (h Handler) writeUseCaseError(w nethttp.ResponseWriter, r *nethttp.Request,
 		h.writeError(w, r, nethttp.StatusBadRequest, "invalid document request")
 	case errors.Is(err, app.ErrNotFound):
 		h.writeError(w, r, nethttp.StatusNotFound, "document not found")
+	case errors.Is(err, app.ErrBlobNotFound):
+		h.writeError(w, r, nethttp.StatusConflict, "uploaded file was not found")
+	case errors.Is(err, app.ErrStorageNotConfigured):
+		h.writeError(w, r, nethttp.StatusServiceUnavailable, "document storage is not configured")
 	case errors.Is(err, access.ErrUnauthenticated):
 		h.writeError(w, r, nethttp.StatusUnauthorized, "unauthorized")
 	case errors.Is(err, access.ErrForbidden):

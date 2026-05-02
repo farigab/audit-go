@@ -7,13 +7,14 @@ import "time"
 type Action string
 
 const (
-	ActionJVCreated        Action = "jv.created"
-	ActionJVActivated      Action = "jv.activated"
-	ActionJVSuspended      Action = "jv.suspended"
-	ActionDocumentUploaded Action = "document.uploaded"
-	ActionDocumentDeleted  Action = "document.deleted"
-	ActionDocumentParsed   Action = "document.parsed"
-	ActionChatQueried      Action = "chat.queried"
+	ActionJVCreated               Action = "jv.created"
+	ActionJVActivated             Action = "jv.activated"
+	ActionJVSuspended             Action = "jv.suspended"
+	ActionDocumentUploadRequested Action = "document.upload_requested"
+	ActionDocumentUploaded        Action = "document.uploaded"
+	ActionDocumentDeleted         Action = "document.deleted"
+	ActionDocumentParsed          Action = "document.parsed"
+	ActionChatQueried             Action = "chat.queried"
 )
 
 // TargetType identifies the entity affected by an event.

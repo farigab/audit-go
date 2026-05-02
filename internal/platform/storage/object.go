@@ -34,6 +34,9 @@ type Object struct {
 	ContentType    string
 	SizeBytes      *int64
 	ChecksumSHA256 string
+	ETag           string
+	VersionID      string
+	VerifiedAt     *time.Time
 	Kind           Kind
 	CreatedBy      string
 	CreatedAt      time.Time

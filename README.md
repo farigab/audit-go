@@ -125,6 +125,7 @@ psql "$DB_URL" -f db/migrations/006_create_documents.sql
 psql "$DB_URL" -f db/migrations/007_create_audit_events.sql
 psql "$DB_URL" -f db/migrations/008_enable_pgvector.sql
 psql "$DB_URL" -f db/migrations/009_create_storage_and_processing.sql
+psql "$DB_URL" -f db/migrations/010_add_upload_confirmation_metadata.sql
 ```
 
 ## API
@@ -155,6 +156,8 @@ Authenticated document endpoints:
 
 ```http
 POST   /documents
+POST   /joint-ventures/{jvID}/documents/upload-url
+POST   /documents/{documentID}/upload-complete
 GET    /documents/get?id=
 DELETE /documents/delete?id=
 GET    /joint-ventures/{jvID}/documents
@@ -174,6 +177,25 @@ GET    /joint-ventures/{jvID}/documents
 Document types: `contract`, `financial`, `report`, `other`.
 
 `POST /documents` creates the document with `status: "queued"` and, in the same PostgreSQL transaction, stores raw blob metadata in `storage_objects`, records the audit event, writes a `DocumentUploaded` outbox event, and creates an idempotent `parse_document:{document_id}:v1` processing job.
+
+Preferred direct upload flow for browser clients:
+
+1. Call `POST /joint-ventures/{jvID}/documents/upload-url` with `filename`, `type`, `content_type`, and optional `size_bytes`.
+2. Upload the file with `PUT` to the returned Azure Blob URL using the returned headers.
+3. Call `POST /documents/{documentID}/upload-complete` with optional `size_bytes`.
+
+The backend creates the document as `upload_pending`, verifies the blob exists on completion, persists Blob metadata (`etag`, `version_id`, content type, size, verification timestamp), records audit events, and only then queues OCR/AI processing.
+
+Azure upload configuration:
+
+```bash
+AZURE_STORAGE_ACCOUNT_NAME=<account>
+AZURE_STORAGE_BLOB_CONTAINER=documents
+AZURE_STORAGE_ENDPOINT=https://<account>.blob.core.windows.net/
+DOCUMENT_UPLOAD_URL_TTL=15m
+```
+
+The API uses `DefaultAzureCredential`, so local development can use Azure CLI credentials and Azure runtime should use Managed Identity with Blob permissions that can generate user delegation SAS and read/write blobs.
 
 ## Python Service
 
@@ -224,6 +246,5 @@ uvicorn main:app --reload --port 8000
 
 ## Next Steps
 
-- Add Azure Blob SAS upload URL and upload confirmation.
-- Make the Go worker consume `processing_jobs`, call Python, and persist parsed artifacts.
+- Make the Go worker consume `processing_jobs`, read the verified Blob, call Azure AI Document Intelligence/Python, and persist parsed artifacts.
 - Add region and joint venture CRUD endpoints.

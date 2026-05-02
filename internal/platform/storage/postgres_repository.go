@@ -31,11 +31,14 @@ func (r *Repository) Save(ctx context.Context, object Object) error {
 			content_type,
 			size_bytes,
 			checksum_sha256,
+			etag,
+			version_id,
+			verified_at,
 			kind,
 			created_by,
 			created_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (container, storage_key) DO UPDATE SET
 			owner_type = EXCLUDED.owner_type,
 			owner_id = EXCLUDED.owner_id,
@@ -43,6 +46,9 @@ func (r *Repository) Save(ctx context.Context, object Object) error {
 			content_type = EXCLUDED.content_type,
 			size_bytes = EXCLUDED.size_bytes,
 			checksum_sha256 = EXCLUDED.checksum_sha256,
+			etag = EXCLUDED.etag,
+			version_id = EXCLUDED.version_id,
+			verified_at = EXCLUDED.verified_at,
 			kind = EXCLUDED.kind
 	`
 
@@ -58,6 +64,9 @@ func (r *Repository) Save(ctx context.Context, object Object) error {
 		nullableString(object.ContentType),
 		object.SizeBytes,
 		nullableString(object.ChecksumSHA256),
+		nullableString(object.ETag),
+		nullableString(object.VersionID),
+		object.VerifiedAt,
 		string(object.Kind),
 		object.CreatedBy,
 		object.CreatedAt,

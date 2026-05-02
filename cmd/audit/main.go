@@ -51,6 +51,17 @@ func main() {
 	authorizer := accesspostgres.NewAuthorizer(db)
 	sessionRepo := accesspostgres.NewSessionRepository(db)
 	transactor := platformpostgres.NewTransactor(db)
+	blobStore, err := storage.NewAzureBlobStore(storage.AzureBlobConfig{
+		AccountName: cfg.AzureStorageAccountName,
+		Container:   cfg.AzureStorageContainer,
+		Endpoint:    cfg.AzureStorageEndpoint,
+	})
+	if errors.Is(err, storage.ErrBlobStorageNotConfigured) {
+		log.Warn().Msg("Azure Blob Storage is not configured; document upload-url endpoints will return 503")
+		blobStore = nil
+	} else if err != nil {
+		log.Fatal().Err(err).Msg("failed to create Azure Blob Storage client")
+	}
 
 	// Microsoft Entra ID token validator
 	entra, err := security.NewEntraTokenValidator(security.EntraConfig{
@@ -78,6 +89,26 @@ func main() {
 		AuditRepo:      auditRepo,
 		StorageRepo:    storageRepo,
 		ProcessingRepo: processingRepo,
+		Authorizer:     authorizer,
+		Transactor:     transactor,
+	}
+
+	requestUpload := documentsapp.RequestDocumentUploadUseCase{
+		DocRepo:      docRepo,
+		AuditRepo:    auditRepo,
+		StorageRepo:  storageRepo,
+		BlobGateway:  blobStore,
+		Authorizer:   authorizer,
+		Transactor:   transactor,
+		UploadURLTTL: cfg.UploadURLTTL,
+	}
+
+	completeUpload := documentsapp.CompleteDocumentUploadUseCase{
+		DocRepo:        docRepo,
+		AuditRepo:      auditRepo,
+		StorageRepo:    storageRepo,
+		ProcessingRepo: processingRepo,
+		BlobGateway:    blobStore,
 		Authorizer:     authorizer,
 		Transactor:     transactor,
 	}
@@ -116,7 +147,7 @@ func main() {
 	documentshttp.RegisterRoutes(
 		mux,
 		auth,
-		documentshttp.NewHandler(log, createDoc, deleteDoc, getDoc, listDocsByJV),
+		documentshttp.NewHandler(log, createDoc, requestUpload, completeUpload, deleteDoc, getDoc, listDocsByJV),
 	)
 
 	var app http.Handler = mux

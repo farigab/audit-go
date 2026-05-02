@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"audit-go/internal/features/access"
 	"audit-go/internal/features/audit"
@@ -63,6 +64,156 @@ func TestCreateDocumentWritesStorageOutboxAndJob(t *testing.T) {
 	}
 	if !auditRepo.saved {
 		t.Fatal("expected audit event to be saved")
+	}
+}
+
+func TestRequestDocumentUploadCreatesPendingDocumentAndUploadURL(t *testing.T) {
+	repo := &fakeDocumentRepository{}
+	auditRepo := &fakeAuditRepository{}
+	storageRepo := &fakeStorageRepository{}
+	auth := &fakeAuthorizer{}
+	blobGateway := &fakeBlobGateway{}
+	uc := RequestDocumentUploadUseCase{
+		DocRepo:      repo,
+		AuditRepo:    auditRepo,
+		StorageRepo:  storageRepo,
+		BlobGateway:  blobGateway,
+		Authorizer:   auth,
+		Transactor:   fakeTransactor{},
+		UploadURLTTL: 15,
+	}
+
+	output, err := uc.Execute(context.Background(), access.Principal{Login: "contributor@example.com"}, RequestDocumentUploadInput{
+		JVID:        validJVID,
+		RequestID:   "00000000-0000-0000-0000-000000000010",
+		Filename:    "../contract.pdf",
+		Type:        documents.TypeContract,
+		ContentType: "application/pdf",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if output.Document.Status != documents.StatusUploadPending {
+		t.Fatalf("expected upload_pending status, got %q", output.Document.Status)
+	}
+	if output.Document.Name != "contract.pdf" {
+		t.Fatalf("expected sanitized filename, got %q", output.Document.Name)
+	}
+	if blobGateway.uploadStorageKey != output.Document.StorageKey {
+		t.Fatalf("expected upload URL for storage key %q, got %q", output.Document.StorageKey, blobGateway.uploadStorageKey)
+	}
+	if output.Upload.Method != "PUT" || output.Upload.URL == "" {
+		t.Fatalf("expected upload target, got %#v", output.Upload)
+	}
+	if storageRepo.savedObject == nil || storageRepo.savedObject.Container != "documents" {
+		t.Fatalf("expected pending storage metadata, got %#v", storageRepo.savedObject)
+	}
+	if !auditRepo.saved {
+		t.Fatal("expected audit event to be saved")
+	}
+	if auth.permission != access.PermissionDocumentCreate {
+		t.Fatalf("expected document create permission, got %q", auth.permission)
+	}
+}
+
+func TestCompleteDocumentUploadVerifiesBlobAndQueuesProcessing(t *testing.T) {
+	doc := documents.Document{
+		ID:         "00000000-0000-0000-0000-000000000002",
+		JVID:       validJVID,
+		Name:       "contract.pdf",
+		Type:       documents.TypeContract,
+		StorageKey: "jvs/" + validJVID + "/documents/00000000-0000-0000-0000-000000000002/raw/contract.pdf",
+		UploadedBy: "contributor@example.com",
+		Status:     documents.StatusUploadPending,
+	}
+	repo := &fakeDocumentRepository{findDoc: &doc}
+	auditRepo := &fakeAuditRepository{}
+	storageRepo := &fakeStorageRepository{}
+	processingRepo := &fakeProcessingRepository{}
+	auth := &fakeAuthorizer{}
+	blobGateway := &fakeBlobGateway{
+		props: storage.BlobProperties{
+			Container:   "documents",
+			ContentType: "application/pdf",
+			SizeBytes:   1234,
+			ETag:        `"etag"`,
+			VersionID:   "version-1",
+		},
+	}
+	uc := CompleteDocumentUploadUseCase{
+		DocRepo:        repo,
+		AuditRepo:      auditRepo,
+		StorageRepo:    storageRepo,
+		ProcessingRepo: processingRepo,
+		BlobGateway:    blobGateway,
+		Authorizer:     auth,
+		Transactor:     fakeTransactor{},
+	}
+	size := int64(1234)
+
+	completed, err := uc.Execute(context.Background(), access.Principal{Login: "contributor@example.com"}, CompleteDocumentUploadInput{
+		DocumentID: doc.ID,
+		RequestID:  "00000000-0000-0000-0000-000000000010",
+		SizeBytes:  &size,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if completed.Status != documents.StatusQueued {
+		t.Fatalf("expected queued status, got %q", completed.Status)
+	}
+	if repo.savedDoc == nil || repo.savedDoc.Status != documents.StatusQueued {
+		t.Fatalf("expected queued document to be saved, got %#v", repo.savedDoc)
+	}
+	if storageRepo.savedObject == nil || storageRepo.savedObject.ETag != `"etag"` {
+		t.Fatalf("expected verified storage metadata, got %#v", storageRepo.savedObject)
+	}
+	if storageRepo.savedObject.SizeBytes == nil || *storageRepo.savedObject.SizeBytes != 1234 {
+		t.Fatalf("expected verified size, got %#v", storageRepo.savedObject.SizeBytes)
+	}
+	if len(processingRepo.jobs) != 1 {
+		t.Fatalf("expected processing job, got %#v", processingRepo.jobs)
+	}
+	if !auditRepo.saved {
+		t.Fatal("expected audit event to be saved")
+	}
+}
+
+func TestCompleteDocumentUploadRejectsSizeMismatch(t *testing.T) {
+	doc := documents.Document{
+		ID:         "00000000-0000-0000-0000-000000000002",
+		JVID:       validJVID,
+		Name:       "contract.pdf",
+		StorageKey: "jvs/" + validJVID + "/documents/00000000-0000-0000-0000-000000000002/raw/contract.pdf",
+		Status:     documents.StatusUploadPending,
+	}
+	repo := &fakeDocumentRepository{findDoc: &doc}
+	blobGateway := &fakeBlobGateway{
+		props: storage.BlobProperties{
+			Container: "documents",
+			SizeBytes: 10,
+		},
+	}
+	uc := CompleteDocumentUploadUseCase{
+		DocRepo:     repo,
+		BlobGateway: blobGateway,
+		Authorizer:  &fakeAuthorizer{},
+		Transactor:  fakeTransactor{},
+	}
+	size := int64(11)
+
+	_, err := uc.Execute(context.Background(), access.Principal{Login: "contributor@example.com"}, CompleteDocumentUploadInput{
+		DocumentID: doc.ID,
+		RequestID:  "00000000-0000-0000-0000-000000000010",
+		SizeBytes:  &size,
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+	if repo.savedDoc != nil {
+		t.Fatalf("did not expect document save, got %#v", repo.savedDoc)
 	}
 }
 
@@ -127,6 +278,8 @@ func TestListDocumentsByJVReturnsEmptySlice(t *testing.T) {
 
 type fakeDocumentRepository struct {
 	docs       []documents.Document
+	findDoc    *documents.Document
+	findErr    error
 	findByJVID string
 	savedDoc   *documents.Document
 }
@@ -137,7 +290,10 @@ func (f *fakeDocumentRepository) Save(_ context.Context, doc documents.Document)
 }
 
 func (f *fakeDocumentRepository) FindByID(context.Context, string) (*documents.Document, error) {
-	return nil, nil
+	if f.findErr != nil {
+		return nil, f.findErr
+	}
+	return f.findDoc, nil
 }
 
 func (f *fakeDocumentRepository) FindByJVID(_ context.Context, jvID string) ([]documents.Document, error) {
@@ -171,6 +327,41 @@ type fakeStorageRepository struct {
 func (f *fakeStorageRepository) Save(_ context.Context, object storage.Object) error {
 	f.savedObject = &object
 	return nil
+}
+
+type fakeBlobGateway struct {
+	uploadStorageKey string
+	props            storage.BlobProperties
+	propsErr         error
+}
+
+func (f *fakeBlobGateway) ContainerName() string {
+	return "documents"
+}
+
+func (f *fakeBlobGateway) CreateUploadURL(
+	_ context.Context,
+	storageKey string,
+	_ string,
+	expiresAt time.Time,
+) (storage.UploadURL, error) {
+	f.uploadStorageKey = storageKey
+	return storage.UploadURL{
+		Method:    "PUT",
+		URL:       "https://example.blob.core.windows.net/documents/" + storageKey,
+		Headers:   map[string]string{"x-ms-blob-type": "BlockBlob"},
+		ExpiresAt: expiresAt,
+		Container: "documents",
+	}, nil
+}
+
+func (f *fakeBlobGateway) GetProperties(_ context.Context, storageKey string) (storage.BlobProperties, error) {
+	if f.propsErr != nil {
+		return storage.BlobProperties{}, f.propsErr
+	}
+	props := f.props
+	props.StorageKey = storageKey
+	return props, nil
 }
 
 type fakeProcessingRepository struct {
