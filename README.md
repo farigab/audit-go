@@ -112,6 +112,15 @@ Fill in:
 - `ENTRA_REDIRECT_URL`, usually `http://localhost:8080/auth/callback` locally
 - `OPENAI_API_KEY` for Python AI helpers
 
+Optional auth / database tuning:
+
+- `DB_MAX_OPEN_CONNS`
+- `DB_MAX_IDLE_CONNS`
+- `DB_CONN_MAX_LIFETIME`
+- `DB_CONN_MAX_IDLE_TIME`
+- `AUTH_CLEANUP_INTERVAL`
+- `ACCESS_PRINCIPAL_CACHE_TTL`
+
 Run the stack:
 
 ```bash
@@ -133,6 +142,8 @@ psql "$DB_URL" -f db/migrations/009_create_storage_and_processing.sql
 psql "$DB_URL" -f db/migrations/010_add_upload_confirmation_metadata.sql
 psql "$DB_URL" -f db/migrations/011_create_document_parse_results.sql
 psql "$DB_URL" -f db/migrations/012_add_parse_result_checksums.sql
+psql "$DB_URL" -f db/migrations/013_replace_revoked_with_revoked_at.sql
+psql "$DB_URL" -f db/migrations/014_add_session_metadata.sql
 ```
 
 ## Frontend Quick Start
@@ -150,7 +161,14 @@ Fluxo minimo:
 1. Redirecione o browser para `GET /auth/login?return_url=<frontend-url>`.
 2. Depois do callback, chame `GET /auth/me` com `credentials: "include"`.
 3. Em `POST`, `PUT`, `PATCH` e `DELETE`, envie `X-CSRF-Token`.
-4. Se uma chamada autenticada voltar `401`, tente `POST /auth/refresh` e repita a request original.
+4. Se uma chamada autenticada voltar `401`, tente `POST /auth/refresh` com CSRF válido e repita a request original.
+
+Comportamento atual do refresh:
+
+- o refresh rotaciona o `audit_refresh`
+- o refresh revoga a sessão anterior antes de emitir a nova
+- o backend reemite `audit_session` e `audit_csrf`
+- reuse de refresh token revoga a família de sessão associada e força novo login
 
 Fluxo de upload atual:
 
@@ -196,6 +214,21 @@ The API uses Microsoft Entra Authorization Code + PKCE and issues application co
 - `audit_csrf`: readable double-submit CSRF token.
 
 For mutating requests sent with cookies, clients must copy `audit_csrf` into the `X-CSRF-Token` header. The API still accepts Microsoft Entra bearer tokens for non-browser clients.
+
+Session persistence now stores a session family id plus request metadata (`ip_address`, `user_agent`, `last_seen_at`) and uses `revoked_at` timestamps instead of a boolean revocation flag. Expired auth states, sessions, and refresh tokens are cleaned periodically by the API process.
+
+Relevant auth/database environment variables:
+
+```bash
+APP_SESSION_TTL=15m
+APP_REFRESH_TTL=720h
+AUTH_CLEANUP_INTERVAL=10m
+ACCESS_PRINCIPAL_CACHE_TTL=30s
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=5
+DB_CONN_MAX_LIFETIME=5m
+DB_CONN_MAX_IDLE_TIME=2m
+```
 
 Authenticated document endpoints:
 

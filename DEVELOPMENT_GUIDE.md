@@ -295,7 +295,19 @@ Observações do estado atual:
 ```text
 - POST /auth/refresh exige audit_refresh + CSRF válido
 - audit_csrf é reemitido junto com login/refresh
+- refresh bem-sucedido revoga a sessão anterior e emite nova sessão da mesma família
+- reuse de refresh token revoga a família de sessão e exige novo login
+- sessões e refresh tokens usam revoked_at em vez de flag booleana
+- access_sessions persiste session_id, ip_address, user_agent e last_seen_at
 - middleware de auth também aceita Authorization: Bearer para clientes não-browser
+```
+
+Operação e tuning do estado atual:
+
+```text
+- a API executa limpeza periódica de access_auth_states, access_sessions e access_refresh_tokens expirados
+- o pool do sql.DB é configurável por ambiente
+- PrincipalByLogin usa cache TTL curto opcional para reduzir leituras repetidas de memberships
 ```
 
 ---

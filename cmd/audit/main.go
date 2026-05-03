@@ -45,7 +45,12 @@ func main() {
 		log.Fatal().Msg("ENTRA_TENANT_ID and ENTRA_CLIENT_ID must not be empty")
 	}
 
-	db, err := platformpostgres.Connect(cfg.DBurl)
+	db, err := platformpostgres.ConnectWithPool(cfg.DBurl, platformpostgres.ConnectionPoolConfig{
+		MaxOpenConns:    cfg.DBMaxOpenConns,
+		MaxIdleConns:    cfg.DBMaxIdleConns,
+		ConnMaxLifetime: cfg.DBConnMaxLifetime,
+		ConnMaxIdleTime: cfg.DBConnMaxIdleTime,
+	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to postgres")
 	}
@@ -60,7 +65,10 @@ func main() {
 	membershipRepo := accesspostgres.NewMembershipRepository(db)
 	regionRepo := regionspostgres.NewRepository(db)
 	jointVentureRepo := jointventurespostgres.NewRepository(db)
-	sessionRepo := accesspostgres.NewSessionRepository(db)
+	sessionRepo := accesspostgres.NewSessionRepository(
+		db,
+		accesspostgres.WithPrincipalCacheTTL(cfg.PrincipalCacheTTL),
+	)
 	transactor := platformpostgres.NewTransactor(db)
 	blobStore, err := storage.NewAzureBlobStore(storage.AzureBlobConfig{
 		AccountName: cfg.AzureStorageAccountName,
@@ -262,6 +270,27 @@ func main() {
 	// worker
 	outboxPublisher := processingworker.NewOutboxPublisher(log, processingRepo)
 	go outboxPublisher.Start(ctx)
+	if cfg.AuthCleanupInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(cfg.AuthCleanupInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					deleted, cleanupErr := sessionRepo.CleanupExpired(ctx, time.Now().UTC())
+					if cleanupErr != nil {
+						log.Error().Err(cleanupErr).Msg("failed to cleanup expired auth state")
+						continue
+					}
+					if deleted > 0 {
+						log.Info().Int64("deleted_rows", deleted).Msg("cleaned expired auth state")
+					}
+				}
+			}
+		}()
+	}
 
 	if blobStore != nil {
 		w := processingworker.New(log, processingRepo, blobStore, pythonClient)

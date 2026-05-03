@@ -2,7 +2,9 @@
 package http
 
 import (
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -59,6 +61,7 @@ func (h Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		r.URL.Query().Get("code"),
 		r.URL.Query().Get("state"),
+		clientMetadata(r),
 	)
 	if err != nil {
 		h.log.Error().Err(err).Msg("failed to complete login callback")
@@ -77,8 +80,12 @@ func (h Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, http.StatusUnauthorized, "missing refresh token")
 		return
 	}
+	var sessionValue string
+	if session, sessionErr := r.Cookie(SessionCookie); sessionErr == nil {
+		sessionValue = session.Value
+	}
 
-	result, err := h.service.Refresh(r.Context(), refresh.Value)
+	result, err := h.service.Refresh(r.Context(), refresh.Value, sessionValue, clientMetadata(r))
 	if err != nil {
 		h.clearAuthCookies(w)
 		h.writeError(w, r, http.StatusUnauthorized, "invalid refresh token")
@@ -233,4 +240,28 @@ func secondsUntil(t time.Time) int {
 		return 1
 	}
 	return seconds
+}
+
+func clientMetadata(r *http.Request) accessapp.ClientMetadata {
+	return accessapp.ClientMetadata{
+		IPAddress: clientIP(r),
+		UserAgent: r.UserAgent(),
+	}
+}
+
+func clientIP(r *http.Request) string {
+	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
+		parts := strings.Split(forwardedFor, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+		return realIP
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
 }

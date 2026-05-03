@@ -5,6 +5,17 @@ import (
 	"time"
 )
 
+func defaultInt(v string, d int) int {
+	if v == "" {
+		return d
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil {
+		return d
+	}
+	return parsed
+}
+
 func defaultString(v, d string) string {
 	if v == "" {
 		return d

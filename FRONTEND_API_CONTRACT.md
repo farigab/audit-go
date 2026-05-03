@@ -197,6 +197,8 @@ Comportamento atual:
 - TTL default de `audit_session`: `15m`.
 - TTL default de `audit_refresh`: `30d`.
 - `audit_csrf` hoje e reemitido junto com login/refresh e expira junto com o refresh atual emitido pelo backend.
+- o backend persiste `session_id`, `ip_address`, `user_agent` e `last_seen_at` para sessao.
+- revogacao persistida usa `revoked_at`.
 
 ### CSRF
 
@@ -215,6 +217,12 @@ Isso significa:
 
 - `POST /auth/refresh` exige `audit_refresh` e tambem exige header CSRF valido.
 - endpoints mutaveis autenticados por sessao exigem `audit_session` e header CSRF valido.
+
+Semantica atual do refresh:
+
+- ao fazer `POST /auth/refresh`, o backend revoga a sessao anterior e emite um novo `audit_session`
+- o backend tambem gira `audit_refresh` e reemite `audit_csrf`
+- se um refresh token antigo for reutilizado depois da rotacao, o backend revoga a familia de sessao ligada a ele e o frontend deve tratar isso como logout forcado
 
 ### Autenticacao do backend
 

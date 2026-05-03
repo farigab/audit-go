@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"audit-go/internal/features/access"
 	"audit-go/internal/platform/security"
 )
@@ -27,7 +29,14 @@ const (
 var (
 	ErrInvalidCallback = errors.New("access auth: invalid callback")
 	ErrInvalidRefresh  = errors.New("access auth: invalid refresh token")
+	ErrRefreshReuse    = errors.New("access auth: refresh token reuse detected")
 )
+
+// ClientMetadata carries request-derived session metadata.
+type ClientMetadata struct {
+	IPAddress string
+	UserAgent string
+}
 
 // AuthState is a stored OAuth authorization attempt.
 type AuthState struct {
@@ -40,16 +49,27 @@ type AuthState struct {
 
 // SessionRecord is a stored application session.
 type SessionRecord struct {
-	TokenHash string
-	UserLogin string
-	ExpiresAt time.Time
+	TokenHash  string
+	SessionID  string
+	UserLogin  string
+	IPAddress  string
+	UserAgent  string
+	LastSeenAt time.Time
+	ExpiresAt  time.Time
 }
 
 // RefreshTokenRecord is a stored rotating application refresh token.
 type RefreshTokenRecord struct {
 	TokenHash string
+	SessionID string
 	UserLogin string
 	ExpiresAt time.Time
+}
+
+// RefreshTokenIdentity links a refresh token to its user and session family.
+type RefreshTokenIdentity struct {
+	UserLogin string
+	SessionID string
 }
 
 // UserProfile is the application user projection maintained from Entra claims.
@@ -68,7 +88,7 @@ type store interface {
 	PrincipalBySession(ctx context.Context, tokenHash string, now time.Time) (access.Principal, error)
 	RevokeSession(ctx context.Context, tokenHash string) error
 	CreateRefreshToken(ctx context.Context, record RefreshTokenRecord) error
-	RotateRefreshToken(ctx context.Context, oldHash string, next RefreshTokenRecord, now time.Time) error
+	RotateRefreshToken(ctx context.Context, oldHash string, next RefreshTokenRecord, now time.Time) (RefreshTokenIdentity, error)
 	PrincipalByRefreshToken(ctx context.Context, tokenHash string, now time.Time) (access.Principal, error)
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
 }
@@ -175,7 +195,7 @@ func (s *Service) LoginURL(ctx context.Context, returnURL string) (string, error
 }
 
 // CompleteCallback exchanges the authorization code and issues app cookies.
-func (s *Service) CompleteCallback(ctx context.Context, code, state string) (*AuthResult, error) {
+func (s *Service) CompleteCallback(ctx context.Context, code, state string, client ClientMetadata) (*AuthResult, error) {
 	if code == "" || state == "" {
 		return nil, ErrInvalidCallback
 	}
@@ -229,7 +249,7 @@ func (s *Service) CompleteCallback(ctx context.Context, code, state string) (*Au
 		principal.Name = name
 	}
 
-	result, err := s.issueTokens(ctx, principal)
+	result, err := s.issueTokens(ctx, principal, client)
 	if err != nil {
 		return nil, err
 	}
@@ -238,8 +258,13 @@ func (s *Service) CompleteCallback(ctx context.Context, code, state string) (*Au
 	return result, nil
 }
 
-// Refresh rotates the application refresh token and issues a new session.
-func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult, error) {
+// Refresh rotates the application refresh token, revokes the current session,
+// and issues a replacement session.
+func (s *Service) Refresh(
+	ctx context.Context,
+	refreshToken, currentSessionToken string,
+	client ClientMetadata,
+) (*AuthResult, error) {
 	if refreshToken == "" {
 		return nil, ErrInvalidRefresh
 	}
@@ -251,12 +276,17 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult
 	nextRefreshExpires := time.Now().UTC().Add(s.cfg.RefreshTTL)
 	oldHash := tokenHash(refreshToken)
 
-	principal, err := s.rotateRefresh(ctx, oldHash, nextRefresh, nextRefreshExpires)
+	principal, sessionID, err := s.rotateRefresh(ctx, oldHash, nextRefresh, nextRefreshExpires)
 	if err != nil {
 		return nil, err
 	}
+	if currentSessionToken != "" {
+		if err = s.store.RevokeSession(ctx, tokenHash(currentSessionToken)); err != nil {
+			return nil, fmt.Errorf("revoking current session: %w", err)
+		}
+	}
 
-	sessionToken, sessionExpires, csrfToken, err := s.createSession(ctx, principal)
+	sessionToken, sessionExpires, csrfToken, err := s.createSession(ctx, principal, sessionID, client)
 	if err != nil {
 		return nil, err
 	}
@@ -299,8 +329,13 @@ func (s *Service) Logout(ctx context.Context, sessionToken, refreshToken string)
 	return nil
 }
 
-func (s *Service) issueTokens(ctx context.Context, principal access.Principal) (*AuthResult, error) {
-	sessionToken, sessionExpires, csrfToken, err := s.createSession(ctx, principal)
+func (s *Service) issueTokens(
+	ctx context.Context,
+	principal access.Principal,
+	client ClientMetadata,
+) (*AuthResult, error) {
+	sessionID := uuid.NewString()
+	sessionToken, sessionExpires, csrfToken, err := s.createSession(ctx, principal, sessionID, client)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +347,7 @@ func (s *Service) issueTokens(ctx context.Context, principal access.Principal) (
 	refreshExpires := time.Now().UTC().Add(s.cfg.RefreshTTL)
 	if err = s.store.CreateRefreshToken(ctx, RefreshTokenRecord{
 		TokenHash: tokenHash(refreshToken),
+		SessionID: sessionID,
 		UserLogin: principal.UserKey(),
 		ExpiresAt: refreshExpires,
 	}); err != nil {
@@ -332,6 +368,8 @@ func (s *Service) issueTokens(ctx context.Context, principal access.Principal) (
 func (s *Service) createSession(
 	ctx context.Context,
 	principal access.Principal,
+	sessionID string,
+	client ClientMetadata,
 ) (sessionToken string, expiresAt time.Time, csrfToken string, err error) {
 	sessionToken, err = randomToken(32)
 	if err != nil {
@@ -342,11 +380,16 @@ func (s *Service) createSession(
 		return "", time.Time{}, "", err
 	}
 	expiresAt = time.Now().UTC().Add(s.cfg.SessionTTL)
+	lastSeenAt := time.Now().UTC()
 
 	if err = s.store.CreateSession(ctx, SessionRecord{
-		TokenHash: tokenHash(sessionToken),
-		UserLogin: principal.UserKey(),
-		ExpiresAt: expiresAt,
+		TokenHash:  tokenHash(sessionToken),
+		SessionID:  sessionID,
+		UserLogin:  principal.UserKey(),
+		IPAddress:  client.IPAddress,
+		UserAgent:  client.UserAgent,
+		LastSeenAt: lastSeenAt,
+		ExpiresAt:  expiresAt,
 	}); err != nil {
 		return "", time.Time{}, "", fmt.Errorf("creating session: %w", err)
 	}
@@ -359,25 +402,31 @@ func (s *Service) rotateRefresh(
 	oldHash string,
 	nextRefresh string,
 	nextExpires time.Time,
-) (access.Principal, error) {
-	// The store validates that oldHash exists, is not revoked, and has not expired.
-	if err := s.store.RotateRefreshToken(ctx, oldHash, RefreshTokenRecord{
+) (access.Principal, string, error) {
+	nextRecord := RefreshTokenRecord{
 		TokenHash: tokenHash(nextRefresh),
+		SessionID: uuid.NewString(),
 		ExpiresAt: nextExpires,
-	}, time.Now().UTC()); err != nil {
-		return access.Principal{}, fmt.Errorf("%w: %v", ErrInvalidRefresh, err)
 	}
 
-	record, err := s.storePrincipalForRefresh(ctx, tokenHash(nextRefresh))
+	// The store validates that oldHash exists, is not revoked, and has not expired.
+	identity, err := s.store.RotateRefreshToken(ctx, oldHash, nextRecord, time.Now().UTC())
 	if err != nil {
-		return access.Principal{}, err
+		if errors.Is(err, ErrRefreshReuse) {
+			return access.Principal{}, "", fmt.Errorf("%w: %v", ErrRefreshReuse, err)
+		}
+		return access.Principal{}, "", fmt.Errorf("%w: %v", ErrInvalidRefresh, err)
+	}
+	if identity.SessionID == "" {
+		identity.SessionID = nextRecord.SessionID
 	}
 
-	return record, nil
-}
+	record, err := s.store.PrincipalByLogin(ctx, identity.UserLogin)
+	if err != nil {
+		return access.Principal{}, "", fmt.Errorf("loading principal: %w", err)
+	}
 
-func (s *Service) storePrincipalForRefresh(ctx context.Context, refreshHash string) (access.Principal, error) {
-	return s.store.PrincipalByRefreshToken(ctx, refreshHash, time.Now().UTC())
+	return record, identity.SessionID, nil
 }
 
 func (s *Service) exchangeCode(ctx context.Context, code, verifier string) (*tokenResponse, error) {
