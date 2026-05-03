@@ -108,10 +108,11 @@ type Config struct {
 
 // Service handles Microsoft Entra login and application session lifecycle.
 type Service struct {
-	cfg       Config
-	store     store
-	validator *security.EntraTokenValidator
-	client    *http.Client
+	cfg            Config
+	allowedOrigins origin.Allowlist
+	store          store
+	validator      *security.EntraTokenValidator
+	client         *http.Client
 }
 
 // AuthResult contains newly issued application tokens.
@@ -142,10 +143,11 @@ func NewService(cfg Config, store store, validator *security.EntraTokenValidator
 	}
 
 	return &Service{
-		cfg:       cfg,
-		store:     store,
-		validator: validator,
-		client:    &http.Client{Timeout: 10 * time.Second},
+		cfg:            cfg,
+		allowedOrigins: origin.Parse(cfg.AllowedOrigins),
+		store:          store,
+		validator:      validator,
+		client:         &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -482,7 +484,7 @@ func (s *Service) safeReturnURL(raw string) string {
 		return s.cfg.SuccessRedirectURL
 	}
 
-	if origin.Parse(s.cfg.AllowedOrigins).Allows(u.Scheme + "://" + u.Host) {
+	if s.allowedOrigins.Allows(u.Scheme + "://" + u.Host) {
 		return raw
 	}
 

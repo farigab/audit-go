@@ -258,19 +258,37 @@ func clientMetadata(r *http.Request, trustProxy bool) accessapp.ClientMetadata {
 
 func clientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
-		if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
-			parts := strings.Split(forwardedFor, ",")
-			if len(parts) > 0 {
-				return strings.TrimSpace(parts[0])
-			}
+		if ip := firstValidIP(r.Header.Get("X-Forwarded-For")); ip != "" {
+			return ip
 		}
-		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
-			return realIP
+		if ip := validIP(r.Header.Get("X-Real-IP")); ip != "" {
+			return ip
 		}
 	}
+
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err == nil && host != "" {
-		return host
+	if err == nil {
+		if ip := validIP(host); ip != "" {
+			return ip
+		}
 	}
+
 	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func firstValidIP(value string) string {
+	for _, part := range strings.Split(value, ",") {
+		if ip := validIP(part); ip != "" {
+			return ip
+		}
+	}
+	return ""
+}
+
+func validIP(value string) string {
+	value = strings.TrimSpace(value)
+	if net.ParseIP(value) == nil {
+		return ""
+	}
+	return value
 }
