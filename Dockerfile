@@ -1,4 +1,4 @@
-FROM golang:1.26.2-alpine AS build
+FROM golang:1.26.2-alpine3.21 AS build
 
 WORKDIR /src
 
@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o /app/server \
     ./cmd/audit
 
-FROM alpine:3.19 AS runtime
+FROM alpine:3.21 AS runtime
 
 RUN apk add --no-cache ca-certificates wget && \
     addgroup -S app && \
@@ -20,9 +20,7 @@ RUN apk add --no-cache ca-certificates wget && \
 
 WORKDIR /app
 
-COPY --from=build /app/server ./server
-
-RUN chown -R app:app /app
+COPY --chown=app:app --from=build /app/server ./server
 
 USER app
 
