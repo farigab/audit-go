@@ -229,6 +229,14 @@ Preferred direct upload flow for browser clients:
 
 The backend creates the document as `upload_pending`, verifies the blob exists on completion, persists Blob metadata (`etag`, `version_id`, content type, size, verification timestamp), records audit events, and only then queues OCR/AI processing.
 
+Processing status can be queried with:
+
+```http
+GET /documents/{documentID}/processing-status
+```
+
+The response includes the document, latest processing job state, retry/dead-letter details when present, and a summary of persisted parse artifacts.
+
 Azure upload configuration:
 
 ```bash
@@ -289,5 +297,4 @@ uvicorn main:app --reload --port 8000
 
 ## Next Steps
 
-- Make the Go worker consume `processing_jobs`, read the verified Blob, call Azure AI Document Intelligence/Python, and persist parsed artifacts.
 - Add region and joint venture CRUD endpoints.

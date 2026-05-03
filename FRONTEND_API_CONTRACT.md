@@ -32,7 +32,7 @@ fetch("http://localhost:8080/auth/me", {
 | CSRF | Disponivel | Obrigatorio em requests mutaveis com cookies de auth |
 | Documents metadata | Disponivel | Criar, buscar, listar por JV, deletar |
 | Upload Blob | Disponivel | URL assinada para upload direto ao Azure Blob |
-| Processing status | Parcial | Status do documento vem no payload; nao ha endpoint dedicado |
+| Processing status | Disponivel | `document.status` no payload e endpoint dedicado por documento |
 | Storage metadata | Interno | Persistido no backend; frontend nao chama direto |
 | Outbox/jobs | Interno | Persistido no backend; frontend nao chama direto |
 | Regions CRUD | Planejado | Mockar no frontend |
@@ -132,6 +132,7 @@ Documents:
 - `POST /documents`
 - `GET /joint-ventures/{jvID}/documents`
 - `GET /documents/get?id=`
+- `GET /documents/{documentID}/processing-status`
 - `DELETE /documents/delete?id=`
 
 Upload:
@@ -268,6 +269,41 @@ export type UploadTarget = {
 export type RequestDocumentUploadResponse = {
   document: AuditDocument;
   upload: UploadTarget;
+};
+
+export type DocumentProcessingJobStatus = {
+  id: string;
+  type: string;
+  status:
+    | "queued"
+    | "running"
+    | "retry_scheduled"
+    | "completed"
+    | "failed"
+    | "dead_letter";
+  attempts: number;
+  max_attempts: number;
+  available_at: string;
+  locked_until?: string;
+  last_error?: string;
+  last_transition: string;
+};
+
+export type DocumentParseResultSummary = {
+  document_id: string;
+  filename: string;
+  pages: number;
+  text_bytes: number;
+  markdown_bytes: number;
+  tables_count: number;
+  chunks_count: number;
+  last_parsed_at?: string;
+};
+
+export type DocumentProcessingStatusResponse = {
+  document: AuditDocument;
+  job?: DocumentProcessingJobStatus;
+  parse_result?: DocumentParseResultSummary;
 };
 
 export type ApiError = {
@@ -619,6 +655,64 @@ Status:
 | --- | --- |
 | `200` | Documento encontrado |
 | `400` | `id` ausente |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV |
+| `404` | Documento nao encontrado |
+
+### GET `/documents/{documentID}/processing-status`
+
+Busca o estado dedicado de processamento de um documento.
+
+Request:
+
+```ts
+const response = await apiFetch(`/documents/${documentId}/processing-status`);
+const status = (await response.json()) as DocumentProcessingStatusResponse;
+```
+
+Resposta `200`:
+
+```json
+{
+  "document": {
+    "id": "document-uuid",
+    "jv_id": "jv-uuid",
+    "name": "contract.pdf",
+    "type": "contract",
+    "storage_key": "jvs/{jv_id}/documents/{document_id}/raw/contract.pdf",
+    "uploaded_by": "user@example.com",
+    "uploaded_at": "2026-05-02T12:00:00Z",
+    "status": "parsed",
+    "processed": true
+  },
+  "job": {
+    "id": "job-uuid",
+    "type": "parse_document",
+    "status": "completed",
+    "attempts": 1,
+    "max_attempts": 5,
+    "available_at": "2026-05-02T12:00:00Z",
+    "last_transition": "2026-05-02T12:01:00Z"
+  },
+  "parse_result": {
+    "document_id": "document-uuid",
+    "filename": "contract.pdf",
+    "pages": 3,
+    "text_bytes": 12000,
+    "markdown_bytes": 13000,
+    "tables_count": 2,
+    "chunks_count": 8,
+    "last_parsed_at": "2026-05-02T12:01:00Z"
+  }
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Status retornado |
+| `400` | `documentID` invalido ou ausente |
 | `401` | Sem sessao valida |
 | `403` | Sem permissao no escopo da JV |
 | `404` | Documento nao encontrado |

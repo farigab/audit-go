@@ -2,6 +2,8 @@
 package processing
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,6 +69,70 @@ type Job struct {
 	LastError      string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+// ParseDocumentPayload is the payload persisted for parse_document jobs.
+type ParseDocumentPayload struct {
+	DocumentID string `json:"document_id"`
+	JVID       string `json:"jv_id"`
+	StorageKey string `json:"storage_key"`
+}
+
+// ParsedTable represents one extracted table from a parsed document.
+type ParsedTable struct {
+	Sheet string     `json:"sheet,omitempty"`
+	Page  int        `json:"page,omitempty"`
+	Rows  [][]string `json:"rows"`
+}
+
+// DocumentChunk is a text chunk ready for indexing. Embedding is optional.
+type DocumentChunk struct {
+	Index     int       `json:"index"`
+	Content   string    `json:"content"`
+	Embedding []float64 `json:"embedding,omitempty"`
+}
+
+// ParseResult is the normalized parsed output stored by the Go worker.
+type ParseResult struct {
+	DocumentID string          `json:"document_id,omitempty"`
+	Filename   string          `json:"filename"`
+	Pages      int             `json:"pages"`
+	Text       string          `json:"text"`
+	Markdown   string          `json:"markdown"`
+	Tables     []ParsedTable   `json:"tables"`
+	Chunks     []DocumentChunk `json:"chunks,omitempty"`
+	ParsedAt   time.Time       `json:"parsed_at,omitempty"`
+}
+
+// ParseResultSummary is a lightweight status view for parsed artifacts.
+type ParseResultSummary struct {
+	DocumentID      string     `json:"document_id"`
+	Filename        string     `json:"filename"`
+	Pages           int        `json:"pages"`
+	TextBytes       int        `json:"text_bytes"`
+	MarkdownBytes   int        `json:"markdown_bytes"`
+	TablesCount     int        `json:"tables_count"`
+	ChunksCount     int        `json:"chunks_count"`
+	LastParsedAt    *time.Time `json:"last_parsed_at,omitempty"`
+	LastCompletedAt *time.Time `json:"last_completed_at,omitempty"`
+}
+
+// DecodeParseDocumentPayload converts the job JSON payload into a typed value.
+func DecodeParseDocumentPayload(job Job) (ParseDocumentPayload, error) {
+	payload, err := json.Marshal(job.Payload)
+	if err != nil {
+		return ParseDocumentPayload{}, fmt.Errorf("marshaling job payload: %w", err)
+	}
+
+	var parsed ParseDocumentPayload
+	if err = json.Unmarshal(payload, &parsed); err != nil {
+		return ParseDocumentPayload{}, fmt.Errorf("decoding parse document payload: %w", err)
+	}
+	if parsed.DocumentID == "" || parsed.StorageKey == "" {
+		return ParseDocumentPayload{}, fmt.Errorf("parse document payload is missing document_id or storage_key")
+	}
+
+	return parsed, nil
 }
 
 // NewDocumentUploadedOutboxEvent describes a document ready for async processing.

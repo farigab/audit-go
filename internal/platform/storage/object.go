@@ -41,3 +41,9 @@ type Object struct {
 	CreatedBy      string
 	CreatedAt      time.Time
 }
+
+// DownloadedBlob contains raw blob bytes plus the metadata returned by storage.
+type DownloadedBlob struct {
+	Content    []byte
+	Properties BlobProperties
+}

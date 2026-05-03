@@ -276,6 +276,64 @@ func TestListDocumentsByJVReturnsEmptySlice(t *testing.T) {
 	}
 }
 
+func TestGetDocumentProcessingStatusReturnsJobAndParseSummary(t *testing.T) {
+	doc := documents.Document{
+		ID:         "00000000-0000-0000-0000-000000000002",
+		JVID:       validJVID,
+		Name:       "contract.pdf",
+		Status:     documents.StatusParsed,
+		Processed:  true,
+		UploadedBy: "contributor@example.com",
+	}
+	updatedAt := time.Now().UTC()
+	parsedAt := updatedAt.Add(-time.Minute)
+	job := processing.Job{
+		ID:          "00000000-0000-0000-0000-000000000020",
+		JobType:     processing.JobTypeParseDocument,
+		Status:      processing.JobCompleted,
+		Attempts:    1,
+		MaxAttempts: 5,
+		AvailableAt: updatedAt,
+		UpdatedAt:   updatedAt,
+	}
+	summary := processing.ParseResultSummary{
+		DocumentID:    doc.ID,
+		Filename:      doc.Name,
+		Pages:         3,
+		TextBytes:     100,
+		MarkdownBytes: 120,
+		TablesCount:   2,
+		ChunksCount:   4,
+		LastParsedAt:  &parsedAt,
+	}
+	repo := &fakeDocumentRepository{findDoc: &doc}
+	processingRepo := &fakeProcessingRepository{latestJob: &job, parseSummary: &summary}
+	auth := &fakeAuthorizer{}
+	uc := GetDocumentProcessingStatusUseCase{
+		DocRepo:        repo,
+		ProcessingRepo: processingRepo,
+		Authorizer:     auth,
+	}
+
+	status, err := uc.Execute(context.Background(), access.Principal{Login: "auditor@example.com"}, doc.ID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if auth.permission != access.PermissionDocumentRead {
+		t.Fatalf("expected document read permission, got %q", auth.permission)
+	}
+	if status.Document.ID != doc.ID || status.Document.Status != documents.StatusParsed {
+		t.Fatalf("unexpected document status: %#v", status.Document)
+	}
+	if status.Job == nil || status.Job.Status != processing.JobCompleted {
+		t.Fatalf("expected completed job status, got %#v", status.Job)
+	}
+	if status.ParseResult == nil || status.ParseResult.ChunksCount != 4 {
+		t.Fatalf("expected parse summary, got %#v", status.ParseResult)
+	}
+}
+
 type fakeDocumentRepository struct {
 	docs       []documents.Document
 	findDoc    *documents.Document
@@ -365,8 +423,10 @@ func (f *fakeBlobGateway) GetProperties(_ context.Context, storageKey string) (s
 }
 
 type fakeProcessingRepository struct {
-	events []processing.OutboxEvent
-	jobs   []processing.Job
+	events       []processing.OutboxEvent
+	jobs         []processing.Job
+	latestJob    *processing.Job
+	parseSummary *processing.ParseResultSummary
 }
 
 func (f *fakeProcessingRepository) SaveOutboxEvent(_ context.Context, event processing.OutboxEvent) error {
@@ -377,6 +437,21 @@ func (f *fakeProcessingRepository) SaveOutboxEvent(_ context.Context, event proc
 func (f *fakeProcessingRepository) SaveJob(_ context.Context, job processing.Job) error {
 	f.jobs = append(f.jobs, job)
 	return nil
+}
+
+func (f *fakeProcessingRepository) FindLatestJobByAggregate(
+	context.Context,
+	string,
+	string,
+) (*processing.Job, error) {
+	return f.latestJob, nil
+}
+
+func (f *fakeProcessingRepository) FindParseResultSummary(
+	context.Context,
+	string,
+) (*processing.ParseResultSummary, error) {
+	return f.parseSummary, nil
 }
 
 type fakeAuthorizer struct {

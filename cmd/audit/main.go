@@ -18,6 +18,7 @@ import (
 	documentshttp "audit-go/internal/features/documents/http"
 	documentpostgres "audit-go/internal/features/documents/postgres"
 	processingpostgres "audit-go/internal/features/processing/postgres"
+	processingpython "audit-go/internal/features/processing/python"
 	processingworker "audit-go/internal/features/processing/worker"
 	"audit-go/internal/platform/config"
 	"audit-go/internal/platform/httpx"
@@ -48,6 +49,7 @@ func main() {
 	auditRepo := auditpostgres.NewRepository(db)
 	storageRepo := storage.NewRepository(db)
 	processingRepo := processingpostgres.NewRepository(db)
+	pythonClient := processingpython.NewClient(cfg.PythonServiceURL)
 	authorizer := accesspostgres.NewAuthorizer(db)
 	sessionRepo := accesspostgres.NewSessionRepository(db)
 	transactor := platformpostgres.NewTransactor(db)
@@ -125,6 +127,12 @@ func main() {
 		Authorizer: authorizer,
 	}
 
+	getProcessingStatus := documentsapp.GetDocumentProcessingStatusUseCase{
+		DocRepo:        docRepo,
+		ProcessingRepo: processingRepo,
+		Authorizer:     authorizer,
+	}
+
 	listDocsByJV := documentsapp.ListDocumentsByJVUseCase{
 		DocRepo:    docRepo,
 		Authorizer: authorizer,
@@ -147,7 +155,16 @@ func main() {
 	documentshttp.RegisterRoutes(
 		mux,
 		auth,
-		documentshttp.NewHandler(log, createDoc, requestUpload, completeUpload, deleteDoc, getDoc, listDocsByJV),
+		documentshttp.NewHandler(
+			log,
+			createDoc,
+			requestUpload,
+			completeUpload,
+			deleteDoc,
+			getDoc,
+			getProcessingStatus,
+			listDocsByJV,
+		),
 	)
 
 	var app http.Handler = mux
@@ -161,8 +178,12 @@ func main() {
 	defer stop()
 
 	// worker
-	w := processingworker.New(log)
-	go w.Start(ctx)
+	if blobStore != nil {
+		w := processingworker.New(log, processingRepo, blobStore, pythonClient)
+		go w.Start(ctx)
+	} else {
+		log.Warn().Msg("file worker disabled because Azure Blob Storage is not configured")
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Port,

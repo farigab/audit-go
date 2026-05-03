@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -189,6 +190,61 @@ func (s *AzureBlobStore) GetProperties(ctx context.Context, storageKey string) (
 		SizeBytes:   size,
 		ETag:        etag,
 		VersionID:   versionID,
+	}, nil
+}
+
+// Download reads a blob and returns its bytes with storage metadata.
+func (s *AzureBlobStore) Download(ctx context.Context, storageKey string) (DownloadedBlob, error) {
+	if s == nil {
+		return DownloadedBlob{}, ErrBlobStorageNotConfigured
+	}
+
+	resp, err := s.client.NewContainerClient(s.container).NewBlobClient(storageKey).DownloadStream(ctx, nil)
+	if err != nil {
+		if bloberror.HasCode(err, bloberror.BlobNotFound, bloberror.ContainerNotFound) {
+			return DownloadedBlob{}, ErrBlobNotFound
+		}
+		return DownloadedBlob{}, fmt.Errorf("downloading blob: %w", err)
+	}
+
+	body := resp.NewRetryReader(ctx, nil)
+	defer func() { _ = body.Close() }()
+
+	content, err := io.ReadAll(body)
+	if err != nil {
+		return DownloadedBlob{}, fmt.Errorf("reading blob content: %w", err)
+	}
+
+	var contentType string
+	if resp.ContentType != nil {
+		contentType = *resp.ContentType
+	}
+
+	var size int64
+	if resp.ContentLength != nil {
+		size = *resp.ContentLength
+	}
+
+	var etag string
+	if resp.ETag != nil {
+		etag = string(*resp.ETag)
+	}
+
+	var versionID string
+	if resp.VersionID != nil {
+		versionID = *resp.VersionID
+	}
+
+	return DownloadedBlob{
+		Content: content,
+		Properties: BlobProperties{
+			Container:   s.container,
+			StorageKey:  storageKey,
+			ContentType: contentType,
+			SizeBytes:   size,
+			ETag:        etag,
+			VersionID:   versionID,
+		},
 	}, nil
 }
 

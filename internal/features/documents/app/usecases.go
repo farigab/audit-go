@@ -53,12 +53,37 @@ type processingRepository interface {
 	SaveJob(ctx context.Context, job processing.Job) error
 }
 
+type processingStatusRepository interface {
+	FindLatestJobByAggregate(ctx context.Context, aggregateType string, aggregateID string) (*processing.Job, error)
+	FindParseResultSummary(ctx context.Context, documentID string) (*processing.ParseResultSummary, error)
+}
+
 type authorizer interface {
 	CanAccessJV(ctx context.Context, principal access.Principal, jvID string, permission access.Permission) error
 }
 
 type transactor interface {
 	WithinTx(ctx context.Context, fn func(context.Context) error) error
+}
+
+// DocumentProcessingStatus describes the current processing state of a document.
+type DocumentProcessingStatus struct {
+	Document    documents.Document             `json:"document"`
+	Job         *DocumentProcessingJobStatus   `json:"job,omitempty"`
+	ParseResult *processing.ParseResultSummary `json:"parse_result,omitempty"`
+}
+
+// DocumentProcessingJobStatus is the frontend-safe view of a processing job.
+type DocumentProcessingJobStatus struct {
+	ID             string               `json:"id"`
+	Type           string               `json:"type"`
+	Status         processing.JobStatus `json:"status"`
+	Attempts       int                  `json:"attempts"`
+	MaxAttempts    int                  `json:"max_attempts"`
+	AvailableAt    time.Time            `json:"available_at"`
+	LockedUntil    *time.Time           `json:"locked_until,omitempty"`
+	LastError      string               `json:"last_error,omitempty"`
+	LastTransition time.Time            `json:"last_transition"`
 }
 
 // CreateDocumentUseCase creates document metadata and records an audit event.
@@ -564,11 +589,74 @@ func (u GetDocumentUseCase) Execute(ctx context.Context, actor access.Principal,
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNotFound, err)
 	}
+	if doc == nil {
+		return nil, ErrNotFound
+	}
 	if err := u.Authorizer.CanAccessJV(ctx, actor, doc.JVID, access.PermissionDocumentRead); err != nil {
 		return nil, err
 	}
 
 	return doc, nil
+}
+
+// GetDocumentProcessingStatusUseCase fetches processing state for one document.
+type GetDocumentProcessingStatusUseCase struct {
+	DocRepo        documentRepository
+	ProcessingRepo processingStatusRepository
+	Authorizer     authorizer
+}
+
+// Execute returns the document status, latest processing job, and parse artifact summary.
+func (u GetDocumentProcessingStatusUseCase) Execute(
+	ctx context.Context,
+	actor access.Principal,
+	documentID string,
+) (*DocumentProcessingStatus, error) {
+	if _, err := uuid.Parse(documentID); err != nil {
+		return nil, fmt.Errorf("%w: invalid document id", ErrInvalidInput)
+	}
+
+	doc, err := u.DocRepo.FindByID(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNotFound, err)
+	}
+	if doc == nil {
+		return nil, ErrNotFound
+	}
+	if err := u.Authorizer.CanAccessJV(ctx, actor, doc.JVID, access.PermissionDocumentRead); err != nil {
+		return nil, err
+	}
+
+	status := &DocumentProcessingStatus{Document: *doc}
+	if u.ProcessingRepo == nil {
+		return status, nil
+	}
+
+	job, err := u.ProcessingRepo.FindLatestJobByAggregate(ctx, processing.AggregateDocument, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("finding processing job status: %w", err)
+	}
+	if job != nil {
+		status.Job = &DocumentProcessingJobStatus{
+			ID:             job.ID,
+			Type:           job.JobType,
+			Status:         job.Status,
+			Attempts:       job.Attempts,
+			MaxAttempts:    job.MaxAttempts,
+			AvailableAt:    job.AvailableAt,
+			LockedUntil:    job.LockedUntil,
+			LastError:      job.LastError,
+			LastTransition: job.UpdatedAt,
+		}
+	}
+
+	parseResult, err := u.ProcessingRepo.FindParseResultSummary(ctx, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("finding parse result summary: %w", err)
+	}
+	status.ParseResult = parseResult
+
+	return status, nil
 }
 
 // ListDocumentsByJVUseCase lists documents after authorizing the JV scope.

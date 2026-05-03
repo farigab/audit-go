@@ -24,6 +24,7 @@ type Handler struct {
 	completeDocumentUpload app.CompleteDocumentUploadUseCase
 	deleteDocument         app.DeleteDocumentUseCase
 	getDocument            app.GetDocumentUseCase
+	getProcessingStatus    app.GetDocumentProcessingStatusUseCase
 	listDocuments          app.ListDocumentsByJVUseCase
 }
 
@@ -35,6 +36,7 @@ func NewHandler(
 	completeUpload app.CompleteDocumentUploadUseCase,
 	del app.DeleteDocumentUseCase,
 	get app.GetDocumentUseCase,
+	getProcessingStatus app.GetDocumentProcessingStatusUseCase,
 	list app.ListDocumentsByJVUseCase,
 ) Handler {
 	return Handler{
@@ -44,6 +46,7 @@ func NewHandler(
 		completeDocumentUpload: completeUpload,
 		deleteDocument:         del,
 		getDocument:            get,
+		getProcessingStatus:    getProcessingStatus,
 		listDocuments:          list,
 	}
 }
@@ -53,6 +56,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, auth func(nethttp.Handler) nethttp.Ha
 	mux.Handle("POST /documents", auth(nethttp.HandlerFunc(h.CreateDocument)))
 	mux.Handle("POST /joint-ventures/{jvID}/documents/upload-url", auth(nethttp.HandlerFunc(h.RequestDocumentUpload)))
 	mux.Handle("POST /documents/{documentID}/upload-complete", auth(nethttp.HandlerFunc(h.CompleteDocumentUpload)))
+	mux.Handle("GET /documents/{documentID}/processing-status", auth(nethttp.HandlerFunc(h.GetDocumentProcessingStatus)))
 	mux.Handle("GET /documents/get", auth(nethttp.HandlerFunc(h.GetDocument)))
 	mux.Handle("DELETE /documents/delete", auth(nethttp.HandlerFunc(h.DeleteDocument)))
 	mux.Handle("GET /joint-ventures/{jvID}/documents", auth(nethttp.HandlerFunc(h.ListDocumentsByJV)))
@@ -208,6 +212,31 @@ func (h Handler) GetDocument(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	if err = httpx.WriteJSON(w, nethttp.StatusOK, doc); err != nil {
+		h.logWriteError(r, err)
+	}
+}
+
+// GetDocumentProcessingStatus handles GET /documents/{documentID}/processing-status.
+func (h Handler) GetDocumentProcessingStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
+	documentID := r.PathValue("documentID")
+	if documentID == "" {
+		h.writeError(w, r, nethttp.StatusBadRequest, "documentID is required")
+		return
+	}
+
+	principal, ok := access.PrincipalFromContext(r.Context())
+	if !ok {
+		h.writeError(w, r, nethttp.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	status, err := h.getProcessingStatus.Execute(r.Context(), principal, documentID)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	if err = httpx.WriteJSON(w, nethttp.StatusOK, status); err != nil {
 		h.logWriteError(r, err)
 	}
 }

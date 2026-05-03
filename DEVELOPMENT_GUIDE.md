@@ -1096,21 +1096,21 @@ mutação de dado + audit_event devem acontecer na mesma transação
 - [x] Criar confirmação de upload.
 - [x] Persistir `storage_objects`.
 - [ ] Persistir checksum SHA-256.
-- [ ] Expor status dedicado de processamento além do campo `document.status`.
+- [x] Expor status dedicado de processamento além do campo `document.status`.
 - [x] Registrar audit events transacionais.
 
 ### Fase 5 — Processing, fila e outbox
 
-- [ ] Criar `outbox_events`.
-- [ ] Criar `processing_jobs`.
+- [x] Criar `outbox_events`.
+- [x] Criar `processing_jobs`.
 - [ ] Criar outbox publisher.
 - [ ] Integrar Azure Service Bus ou RabbitMQ.
-- [ ] Criar worker Go idempotente.
-- [ ] Chamar Python `/parse`.
-- [ ] Persistir texto extraído no Blob e/ou Postgres.
-- [ ] Persistir tabelas normalizadas.
-- [ ] Marcar documento como processado ou failed.
-- [ ] Implementar retries, backoff e dead-letter.
+- [x] Criar worker Go idempotente.
+- [x] Chamar Python `/parse`.
+- [x] Persistir texto extraído no Blob e/ou Postgres.
+- [x] Persistir tabelas normalizadas.
+- [x] Marcar documento como processado ou failed.
+- [x] Implementar retries, backoff e dead-letter.
 
 ### Fase 6 — Prompt Management
 

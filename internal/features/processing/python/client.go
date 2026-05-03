@@ -11,25 +11,17 @@ import (
 	"net/http"
 	"path/filepath"
 	"time"
+
+	"audit-go/internal/features/processing"
 )
 
 const defaultTimeout = 60 * time.Second
 
 // ParsedTable represents one extracted table from any parser.
-type ParsedTable struct {
-	Sheet string     `json:"sheet,omitempty"`
-	Page  int        `json:"page,omitempty"`
-	Rows  [][]string `json:"rows"`
-}
+type ParsedTable = processing.ParsedTable
 
 // ParseResult represents the parsed output returned by the Python service.
-type ParseResult struct {
-	Filename string        `json:"filename"`
-	Pages    int           `json:"pages"`
-	Text     string        `json:"text"`
-	Markdown string        `json:"markdown"`
-	Tables   []ParsedTable `json:"tables"`
-}
+type ParseResult = processing.ParseResult
 
 // Client is a lightweight client for the Python parsing service.
 type Client struct {
