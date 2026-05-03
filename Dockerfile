@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o /app/server \
     ./cmd/audit
 
-FROM alpine:3.19
+FROM alpine:3.19 AS runtime
 
 RUN apk add --no-cache ca-certificates wget && \
     addgroup -S app && \
@@ -28,6 +28,7 @@ USER app
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["./server"]
