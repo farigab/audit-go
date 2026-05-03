@@ -142,8 +142,6 @@ psql "$DB_URL" -f db/migrations/009_create_storage_and_processing.sql
 psql "$DB_URL" -f db/migrations/010_add_upload_confirmation_metadata.sql
 psql "$DB_URL" -f db/migrations/011_create_document_parse_results.sql
 psql "$DB_URL" -f db/migrations/012_add_parse_result_checksums.sql
-psql "$DB_URL" -f db/migrations/013_replace_revoked_with_revoked_at.sql
-psql "$DB_URL" -f db/migrations/014_add_session_metadata.sql
 ```
 
 ## Frontend Quick Start
