@@ -3,14 +3,10 @@
 echo "Rodando validações..."
 
 if command -v cmd >/dev/null 2>&1; then
-    cmd /c scripts\\check.bat
+    WIN_PATH=$(cygpath -w "$(pwd)/scripts/check.bat")
+    cmd /c "$WIN_PATH" || { echo "Erro! Commit cancelado."; exit 1; }
 else
-    make check
-fi
-
-if [ $? -ne 0 ]; then
-  echo "Erro! Commit cancelado."
-  exit 1
+    make check || { echo "Erro! Commit cancelado."; exit 1; }
 fi
 
 echo "Tudo certo!"

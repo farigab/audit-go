@@ -1,13 +1,13 @@
 // Package origin provides utilities for validating HTTP Origin headers
-// against a configured allowlist. Used by both the CORS middleware and
-// the refresh-token rotation handler.
+// against a configured allowlist.
 //
-// Formato da allowlist: string separada por vírgulas com URLs completas
-// ou hosts bare. Exemplos:
+// Allowlist format: comma-separated origins. Full origins are preferred:
 //
 //	"https://app.example.com,https://admin.example.com"
 //	"http://localhost:3000"
-//	"app.example.com:443"
+//
+// Bare host entries are accepted for local/dev compatibility and match the
+// exact host[:port] from the Origin header.
 package origin
 
 import (
@@ -16,118 +16,125 @@ import (
 	"strings"
 )
 
-// Allowlist holds a parsed set of allowed origin hostnames.
-// Construída uma vez na inicialização e reutilizada em cada request —
-// zero alocações no hot path.
+// Allowlist holds a parsed set of allowed origins.
 type Allowlist struct {
-	hostnames []string // hostname bare, sem porta e sem scheme
-	raw       string   // valor original, para logging
+	origins     []string
+	legacyHosts []string
 }
 
-// Parse builds an Allowlist from a comma-separated string of URLs or hosts.
-// Entradas em branco são ignoradas. Retorna uma Allowlist vazia (que bloqueia
-// tudo) se raw for vazio.
+// Parse builds an Allowlist from a comma-separated string of origins.
 func Parse(raw string) Allowlist {
 	if raw == "" {
 		return Allowlist{}
 	}
 
 	seen := make(map[string]struct{})
-	out := make([]string, 0)
+	origins := make([]string, 0)
+	legacyHosts := make([]string, 0)
 
 	for _, entry := range strings.Split(raw, ",") {
-		h := extractHostname(strings.TrimSpace(entry))
-		if h == "" {
+		value := strings.TrimSpace(entry)
+		if value == "" {
 			continue
 		}
-		if _, dup := seen[h]; dup {
+
+		origin, legacyHost := normalizeAllowlistEntry(value)
+		key := origin
+		if key == "" {
+			key = "host:" + legacyHost
+		}
+		if key == "" {
 			continue
 		}
-		seen[h] = struct{}{}
-		out = append(out, h)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		if origin != "" {
+			origins = append(origins, origin)
+			continue
+		}
+		legacyHosts = append(legacyHosts, legacyHost)
 	}
 
-	return Allowlist{hostnames: out, raw: raw}
+	return Allowlist{origins: origins, legacyHosts: legacyHosts}
 }
 
 // Empty reports whether no origins are configured.
-// Um allowlist vazia significa "negar tudo que tiver Origin header".
 func (a Allowlist) Empty() bool {
-	return len(a.hostnames) == 0
+	return len(a.origins) == 0 && len(a.legacyHosts) == 0
 }
 
 // Allows reports whether the given Origin header value is permitted.
-//
-// Regras:
-//  1. Origin vazio (request não-browser, ex: curl, server-to-server) → sempre true.
-//  2. Allowlist vazia → false para qualquer Origin presente.
-//  3. Caso contrário, compara hostname do Origin contra a lista.
 func (a Allowlist) Allows(originHeader string) bool {
 	if originHeader == "" {
-		return true // não-browser, sem restrição de origin
+		return true
 	}
 	if a.Empty() {
 		return false
 	}
-	h := hostnameFromOriginHeader(originHeader)
-	if h == "" {
+
+	origin, host := normalizeOriginHeader(originHeader)
+	if origin == "" {
 		return false
 	}
-	for _, allowed := range a.hostnames {
-		if allowed == h {
+	for _, allowed := range a.origins {
+		if allowed == origin {
+			return true
+		}
+	}
+	for _, allowed := range a.legacyHosts {
+		if allowed == host {
 			return true
 		}
 	}
 	return false
 }
 
-// AllowedOriginFor retorna o valor exato que deve ir no header
-// Access-Control-Allow-Origin para o request dado. Retorna "" se não permitido.
-//
-// Por que retornar a string do request e não "*"?
-// Quando credenciais (cookies) estão envolvidas, o browser rejeita "*".
-// Devemos ecoar o Origin exato do request.
-func (a Allowlist) AllowedOriginFor(originHeader string) string {
-	if !a.Allows(originHeader) {
-		return ""
+func normalizeAllowlistEntry(raw string) (origin string, legacyHost string) {
+	if raw == "" {
+		return "", ""
 	}
-	if originHeader == "" {
-		return "*"
+	if strings.Contains(raw, "://") {
+		origin, _ := normalizeOriginHeader(raw)
+		return origin, ""
 	}
-	return originHeader
+	return "", normalizeHost(raw)
 }
 
-// Raw returns the original unparsed string (useful for logging/debugging).
-func (a Allowlist) Raw() string { return a.raw }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-// hostnameFromOriginHeader extrai apenas o hostname de um header Origin completo.
-// O header Origin tem formato: scheme://host[:port] — sem path, query ou fragment.
-func hostnameFromOriginHeader(origin string) string {
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return ""
+func normalizeOriginHeader(raw string) (origin string, host string) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", ""
 	}
-	return u.Hostname() // strip porta se presente
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", ""
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", ""
+	}
+
+	host = normalizeHost(u.Host)
+	if host == "" {
+		return "", ""
+	}
+
+	return scheme + "://" + host, host
 }
 
-// extractHostname normaliza uma entrada da allowlist para hostname bare.
-// Aceita URLs completas ("https://example.com:8080") ou bare hosts ("example.com:8080").
-func extractHostname(raw string) string {
+func normalizeHost(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
 	if raw == "" {
 		return ""
 	}
-	if strings.Contains(raw, "://") {
-		u, err := url.Parse(raw)
-		if err != nil {
-			return raw
-		}
-		return u.Hostname()
+
+	host, port, err := net.SplitHostPort(raw)
+	if err == nil {
+		return strings.ToLower(net.JoinHostPort(host, port))
 	}
-	// bare host[:port]
-	if h, _, err := net.SplitHostPort(raw); err == nil {
-		return h
-	}
+
 	return raw
 }

@@ -27,6 +27,7 @@ type entraClaims struct {
 	OID               string   `json:"oid"`
 	PreferredUsername string   `json:"preferred_username"`
 	Name              string   `json:"name"`
+	Nonce             string   `json:"nonce"`
 	Roles             []string `json:"roles"`
 }
 
@@ -67,7 +68,7 @@ func NewEntraTokenValidator(cfg EntraConfig) (*EntraTokenValidator, error) {
 		// Both issuer formats are used depending on token version and tenant type.
 		validIssuers: map[string]struct{}{
 			fmt.Sprintf("https://login.microsoftonline.com/%s/v2.0", cfg.TenantID): {},
-			fmt.Sprintf("https://sts.windows.net/%s/", cfg.TenantID):              {},
+			fmt.Sprintf("https://sts.windows.net/%s/", cfg.TenantID):               {},
 		},
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		keyCache:   make(map[string]*rsa.PublicKey),
@@ -78,8 +79,9 @@ func NewEntraTokenValidator(cfg EntraConfig) (*EntraTokenValidator, error) {
 // EntraClaims holds the validated claims extracted from an Entra ID token.
 type EntraClaims struct {
 	OID   string
-	Login string   // preferred_username (UPN), falls back to OID for service principals
+	Login string // preferred_username (UPN), falls back to OID for service principals
 	Name  string
+	Nonce string
 	Roles []string
 }
 
@@ -140,6 +142,7 @@ func (v *EntraTokenValidator) Validate(ctx context.Context, rawToken string) (*E
 		OID:   claims.OID,
 		Login: login,
 		Name:  claims.Name,
+		Nonce: claims.Nonce,
 		Roles: claims.Roles,
 	}, nil
 }
