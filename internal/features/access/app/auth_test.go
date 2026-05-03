@@ -68,6 +68,34 @@ func TestRefreshRejectsReuseDetection(t *testing.T) {
 	}
 }
 
+func TestSafeReturnURLAllowsRelativePath(t *testing.T) {
+	service := NewService(Config{
+		SuccessRedirectURL: "https://app.example.com",
+		AllowedOrigins:     "https://app.example.com",
+	}, &fakeAuthStore{}, nil)
+
+	if got := service.safeReturnURL("/dashboard"); got != "/dashboard" {
+		t.Fatalf("expected relative return URL to be preserved, got %q", got)
+	}
+}
+
+func TestSafeReturnURLUsesOriginAllowlist(t *testing.T) {
+	service := NewService(Config{
+		SuccessRedirectURL: "https://app.example.com/home",
+		AllowedOrigins:     "https://app.example.com,localhost:5173",
+	}, &fakeAuthStore{}, nil)
+
+	if got := service.safeReturnURL("https://app.example.com/reports"); got != "https://app.example.com/reports" {
+		t.Fatalf("expected configured origin to be allowed, got %q", got)
+	}
+	if got := service.safeReturnURL("http://localhost:5173/callback"); got != "http://localhost:5173/callback" {
+		t.Fatalf("expected legacy host entry to be allowed, got %q", got)
+	}
+	if got := service.safeReturnURL("https://evil.example.com"); got != "https://app.example.com/home" {
+		t.Fatalf("expected foreign origin to fall back, got %q", got)
+	}
+}
+
 type fakeAuthStore struct {
 	principal            access.Principal
 	rotateIdentity       RefreshTokenIdentity

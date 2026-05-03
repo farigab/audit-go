@@ -20,6 +20,7 @@ type Config struct {
 	PythonServiceURL  string
 	Port              string
 	AllowedOrigins    string
+	TrustProxy        bool
 	UploadURLTTL      time.Duration
 
 	AzureStorageAccountName string
@@ -61,6 +62,7 @@ func Load() *Config {
 		PythonServiceURL:  defaultString(os.Getenv("PYTHON_SERVICE_URL"), "http://localhost:8000"),
 		Port:              defaultString(os.Getenv("PORT"), ":8080"),
 		AllowedOrigins:    defaultString(os.Getenv("ALLOWED_ORIGINS"), ""),
+		TrustProxy:        defaultBool(os.Getenv("TRUST_PROXY"), false),
 		UploadURLTTL:      defaultDuration(os.Getenv("DOCUMENT_UPLOAD_URL_TTL"), 15*time.Minute),
 
 		AzureStorageAccountName: os.Getenv("AZURE_STORAGE_ACCOUNT_NAME"),

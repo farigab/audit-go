@@ -24,14 +24,21 @@ const (
 
 // Handler handles auth endpoints.
 type Handler struct {
-	log     zerolog.Logger
-	service *accessapp.Service
-	cookies *config.CookieConfig
+	log        zerolog.Logger
+	service    *accessapp.Service
+	cookies    *config.CookieConfig
+	trustProxy bool
 }
 
 // NewHandler creates an auth handler.
 func NewHandler(log zerolog.Logger, service *accessapp.Service, cookies *config.CookieConfig) Handler {
 	return Handler{log: log, service: service, cookies: cookies}
+}
+
+// WithTrustProxy configures whether proxy forwarding headers are trusted.
+func (h Handler) WithTrustProxy(trustProxy bool) Handler {
+	h.trustProxy = trustProxy
+	return h
 }
 
 // RegisterRoutes wires auth routes.
@@ -61,7 +68,7 @@ func (h Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		r.URL.Query().Get("code"),
 		r.URL.Query().Get("state"),
-		clientMetadata(r),
+		clientMetadata(r, h.trustProxy),
 	)
 	if err != nil {
 		h.log.Error().Err(err).Msg("failed to complete login callback")
@@ -85,7 +92,7 @@ func (h Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		sessionValue = session.Value
 	}
 
-	result, err := h.service.Refresh(r.Context(), refresh.Value, sessionValue, clientMetadata(r))
+	result, err := h.service.Refresh(r.Context(), refresh.Value, sessionValue, clientMetadata(r, h.trustProxy))
 	if err != nil {
 		h.clearAuthCookies(w)
 		h.writeError(w, r, http.StatusUnauthorized, "invalid refresh token")
@@ -242,22 +249,24 @@ func secondsUntil(t time.Time) int {
 	return seconds
 }
 
-func clientMetadata(r *http.Request) accessapp.ClientMetadata {
+func clientMetadata(r *http.Request, trustProxy bool) accessapp.ClientMetadata {
 	return accessapp.ClientMetadata{
-		IPAddress: clientIP(r),
+		IPAddress: clientIP(r, trustProxy),
 		UserAgent: r.UserAgent(),
 	}
 }
 
-func clientIP(r *http.Request) string {
-	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
-		parts := strings.Split(forwardedFor, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
+			parts := strings.Split(forwardedFor, ",")
+			if len(parts) > 0 {
+				return strings.TrimSpace(parts[0])
+			}
 		}
-	}
-	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
-		return realIP
+		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+			return realIP
+		}
 	}
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err == nil && host != "" {

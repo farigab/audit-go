@@ -4,7 +4,7 @@
 // Allowlist format: comma-separated origins. Full origins are preferred:
 //
 //	"https://app.example.com,https://admin.example.com"
-//	"http://localhost:3000"
+//	"http://localhost:5173"
 //
 // Bare host entries are accepted for local/dev compatibility and match the
 // exact host[:port] from the Origin header.

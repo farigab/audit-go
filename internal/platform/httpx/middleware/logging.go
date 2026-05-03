@@ -11,8 +11,9 @@ import (
 
 type responseWriter struct {
 	http.ResponseWriter
-	status int
-	bytes  int
+	status      int
+	bytes       int
+	wroteHeader bool
 }
 
 func newResponseWriter(w http.ResponseWriter) *responseWriter {
@@ -23,11 +24,18 @@ func newResponseWriter(w http.ResponseWriter) *responseWriter {
 }
 
 func (rw *responseWriter) WriteHeader(status int) {
+	if rw.wroteHeader {
+		return
+	}
 	rw.status = status
+	rw.wroteHeader = true
 	rw.ResponseWriter.WriteHeader(status)
 }
 
 func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.wroteHeader {
+		rw.WriteHeader(http.StatusOK)
+	}
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytes += n
 	return n, err

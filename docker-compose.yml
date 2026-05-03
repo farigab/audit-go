@@ -9,8 +9,8 @@ services:
       - PORT=:8080
       - PYTHON_SERVICE_URL=http://python-service:8000
       - DB_URL=postgres://audit:audit@postgres:5432/auditdb?sslmode=disable
-      - ALLOWED_ORIGINS=http://localhost:3000
-      - AUTH_SUCCESS_REDIRECT_URL=http://localhost:3000
+      - ALLOWED_ORIGINS=http://localhost:5173
+      - AUTH_SUCCESS_REDIRECT_URL=http://localhost:5173
       - APP_SESSION_TTL=15m
       - APP_REFRESH_TTL=720h
       - ENTRA_TENANT_ID=${ENTRA_TENANT_ID}

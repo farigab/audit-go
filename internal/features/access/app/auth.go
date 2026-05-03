@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"audit-go/internal/features/access"
+	"audit-go/internal/platform/origin"
 	"audit-go/internal/platform/security"
 )
 
@@ -481,12 +482,8 @@ func (s *Service) safeReturnURL(raw string) string {
 		return s.cfg.SuccessRedirectURL
 	}
 
-	requestOrigin := strings.ToLower(u.Scheme + "://" + u.Host)
-	for _, entry := range strings.Split(s.cfg.AllowedOrigins, ",") {
-		allowed := strings.TrimSpace(strings.ToLower(entry))
-		if allowed != "" && allowed == requestOrigin {
-			return raw
-		}
+	if origin.Parse(s.cfg.AllowedOrigins).Allows(u.Scheme + "://" + u.Host) {
+		return raw
 	}
 
 	return s.cfg.SuccessRedirectURL

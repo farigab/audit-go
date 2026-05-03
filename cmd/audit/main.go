@@ -222,7 +222,7 @@ func main() {
 	accesshttp.RegisterRoutes(
 		mux,
 		auth,
-		accesshttp.NewHandler(log, authService, cookieCfg),
+		accesshttp.NewHandler(log, authService, cookieCfg).WithTrustProxy(cfg.TrustProxy),
 	)
 	accesshttp.RegisterMembershipRoutes(
 		mux,
