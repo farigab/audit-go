@@ -17,7 +17,10 @@ import (
 	"audit-go/internal/features/documents"
 	"audit-go/internal/features/processing"
 	platformpostgres "audit-go/internal/platform/postgres"
+	"audit-go/internal/platform/storage"
 )
+
+const maxOutboxPublishAttempts = 5
 
 // Repository stores outbox events and processing jobs in PostgreSQL.
 type Repository struct {
@@ -181,6 +184,14 @@ func (r *Repository) SaveOutboxEvent(ctx context.Context, event processing.Outbo
 
 // SaveJob persists a processing job. The idempotency key prevents duplicates.
 func (r *Repository) SaveJob(ctx context.Context, job processing.Job) error {
+	if err := saveJob(ctx, platformpostgres.Executor(ctx, r.db), job); err != nil {
+		return fmt.Errorf("saving processing job: %w", err)
+	}
+
+	return nil
+}
+
+func saveJob(ctx context.Context, executor platformpostgres.DBTX, job processing.Job) error {
 	payload, err := json.Marshal(job.Payload)
 	if err != nil {
 		return fmt.Errorf("marshaling job payload: %w", err)
@@ -208,7 +219,7 @@ func (r *Repository) SaveJob(ctx context.Context, job processing.Job) error {
 		ON CONFLICT (idempotency_key) DO NOTHING
 	`
 
-	_, err = platformpostgres.Executor(ctx, r.db).ExecContext(
+	_, err = executor.ExecContext(
 		ctx,
 		query,
 		job.ID,
@@ -228,7 +239,142 @@ func (r *Repository) SaveJob(ctx context.Context, job processing.Job) error {
 		job.UpdatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("saving processing job: %w", err)
+		return err
+	}
+
+	return nil
+}
+
+// PublishNextOutboxEvent publishes one pending outbox event into the local job table.
+func (r *Repository) PublishNextOutboxEvent(ctx context.Context) (*processing.OutboxEvent, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, fmt.Errorf("beginning outbox publish transaction: %w", err)
+	}
+
+	event, err := claimNextOutboxEvent(ctx, tx)
+	if errors.Is(err, sql.ErrNoRows) {
+		_ = tx.Rollback()
+		return nil, nil
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+
+	publishErr := publishOutboxEvent(ctx, tx, *event)
+	if publishErr != nil {
+		if err = recordOutboxPublishFailure(ctx, tx, *event, publishErr); err != nil {
+			_ = tx.Rollback()
+			return event, err
+		}
+	} else if err = markOutboxPublished(ctx, tx, event.ID); err != nil {
+		_ = tx.Rollback()
+		return event, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return event, fmt.Errorf("committing outbox publish transaction: %w", err)
+	}
+	if publishErr != nil {
+		return event, publishErr
+	}
+
+	return event, nil
+}
+
+func claimNextOutboxEvent(ctx context.Context, tx *sql.Tx) (*processing.OutboxEvent, error) {
+	const query = `
+		SELECT
+			id,
+			event_type,
+			aggregate_type,
+			aggregate_id,
+			payload,
+			status,
+			attempts,
+			last_error,
+			created_at,
+			published_at
+		FROM outbox_events
+		WHERE status = $1
+		ORDER BY created_at ASC
+		FOR UPDATE SKIP LOCKED
+		LIMIT 1
+	`
+
+	event, err := scanOutboxEvent(tx.QueryRowContext(ctx, query, string(processing.OutboxPending)))
+	if err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+func publishOutboxEvent(ctx context.Context, tx *sql.Tx, event processing.OutboxEvent) error {
+	switch event.EventType {
+	case processing.EventDocumentUploaded:
+		payload, err := processing.DecodeDocumentUploadedPayload(event)
+		if err != nil {
+			return err
+		}
+		job := processing.NewParseDocumentJob(payload.DocumentID, payload.JVID, payload.StorageKey)
+		if err = saveJob(ctx, tx, job); err != nil {
+			return fmt.Errorf("saving processing job from outbox: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported outbox event type %q", event.EventType)
+	}
+}
+
+func markOutboxPublished(ctx context.Context, tx *sql.Tx, eventID string) error {
+	res, err := tx.ExecContext(
+		ctx,
+		`UPDATE outbox_events
+		 SET status = $1,
+			 attempts = attempts + 1,
+			 last_error = NULL,
+			 published_at = NOW()
+		 WHERE id = $2`,
+		string(processing.OutboxPublished),
+		eventID,
+	)
+	if err != nil {
+		return fmt.Errorf("marking outbox event published: %w", err)
+	}
+	if rows, rowsErr := res.RowsAffected(); rowsErr != nil {
+		return fmt.Errorf("checking published outbox update: %w", rowsErr)
+	} else if rows == 0 {
+		return fmt.Errorf("marking outbox event published: event %s not found", eventID)
+	}
+
+	return nil
+}
+
+func recordOutboxPublishFailure(ctx context.Context, tx *sql.Tx, event processing.OutboxEvent, failure error) error {
+	status := processing.OutboxPending
+	if event.Attempts+1 >= maxOutboxPublishAttempts {
+		status = processing.OutboxFailed
+	}
+
+	res, err := tx.ExecContext(
+		ctx,
+		`UPDATE outbox_events
+		 SET status = $1,
+			 attempts = attempts + 1,
+			 last_error = $2
+		 WHERE id = $3`,
+		string(status),
+		truncateError(failure),
+		event.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("recording outbox publish failure: %w", err)
+	}
+	if rows, rowsErr := res.RowsAffected(); rowsErr != nil {
+		return fmt.Errorf("checking failed outbox update: %w", rowsErr)
+	} else if rows == 0 {
+		return fmt.Errorf("recording outbox publish failure: event %s not found", event.ID)
 	}
 
 	return nil
@@ -261,16 +407,22 @@ func (r *Repository) CompleteParseJob(ctx context.Context, jobID string, result 
 			text,
 			markdown,
 			tables,
+			text_sha256,
+			markdown_sha256,
+			tables_sha256,
 			created_at,
 			updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$7)
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$10)
 		ON CONFLICT (document_id) DO UPDATE SET
 			filename = EXCLUDED.filename,
 			pages = EXCLUDED.pages,
 			text = EXCLUDED.text,
 			markdown = EXCLUDED.markdown,
 			tables = EXCLUDED.tables,
+			text_sha256 = EXCLUDED.text_sha256,
+			markdown_sha256 = EXCLUDED.markdown_sha256,
+			tables_sha256 = EXCLUDED.tables_sha256,
 			updated_at = EXCLUDED.updated_at
 	`
 	if _, err = tx.ExecContext(
@@ -282,10 +434,18 @@ func (r *Repository) CompleteParseJob(ctx context.Context, jobID string, result 
 		result.Text,
 		result.Markdown,
 		tables,
+		nullableString(result.TextSHA256),
+		nullableString(result.MarkdownSHA256),
+		nullableString(result.TablesSHA256),
 		result.ParsedAt,
 	); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("saving parse result: %w", err)
+	}
+
+	if err = updateRawStorageChecksum(ctx, tx, result); err != nil {
+		_ = tx.Rollback()
+		return err
 	}
 
 	if _, err = tx.ExecContext(ctx, `DELETE FROM document_chunks WHERE document_id = $1`, result.DocumentID); err != nil {
@@ -487,6 +647,18 @@ func (r *Repository) FindParseResultSummary(ctx context.Context, documentID stri
 			octet_length(r.text),
 			octet_length(r.markdown),
 			jsonb_array_length(r.tables),
+			COALESCE((
+				SELECT so.checksum_sha256
+				FROM storage_objects so
+				WHERE so.owner_type = 'document'
+				  AND so.owner_id = r.document_id
+				  AND so.kind = 'raw'
+				ORDER BY so.created_at DESC
+				LIMIT 1
+			), ''),
+			COALESCE(r.text_sha256, ''),
+			COALESCE(r.markdown_sha256, ''),
+			COALESCE(r.tables_sha256, ''),
 			r.updated_at,
 			COUNT(c.id)
 		FROM document_parse_results r
@@ -499,6 +671,9 @@ func (r *Repository) FindParseResultSummary(ctx context.Context, documentID stri
 			r.text,
 			r.markdown,
 			r.tables,
+			r.text_sha256,
+			r.markdown_sha256,
+			r.tables_sha256,
 			r.updated_at
 	`
 
@@ -511,6 +686,10 @@ func (r *Repository) FindParseResultSummary(ctx context.Context, documentID stri
 		&summary.TextBytes,
 		&summary.MarkdownBytes,
 		&summary.TablesCount,
+		&summary.RawSHA256,
+		&summary.TextSHA256,
+		&summary.MarkdownSHA256,
+		&summary.TablesSHA256,
 		&parsedAt,
 		&summary.ChunksCount,
 	); errors.Is(err, sql.ErrNoRows) {
@@ -523,6 +702,81 @@ func (r *Repository) FindParseResultSummary(ctx context.Context, documentID stri
 	summary.LastParsedAt = &parsedAt
 
 	return &summary, nil
+}
+
+// ListDocumentChunks returns parsed chunks for a document in stable chunk order.
+func (r *Repository) ListDocumentChunks(
+	ctx context.Context,
+	documentID string,
+	limit int,
+	offset int,
+) ([]processing.DocumentChunkRecord, error) {
+	const query = `
+		SELECT
+			id,
+			document_id,
+			chunk_index,
+			content,
+			created_at
+		FROM document_chunks
+		WHERE document_id = $1
+		ORDER BY chunk_index ASC
+		LIMIT $2
+		OFFSET $3
+	`
+
+	rows, err := platformpostgres.Executor(ctx, r.db).QueryContext(ctx, query, documentID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("listing document chunks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	chunks := make([]processing.DocumentChunkRecord, 0)
+	for rows.Next() {
+		var chunk processing.DocumentChunkRecord
+		if err = rows.Scan(
+			&chunk.ID,
+			&chunk.DocumentID,
+			&chunk.Index,
+			&chunk.Content,
+			&chunk.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning document chunk: %w", err)
+		}
+		chunk.CreatedAt = chunk.CreatedAt.UTC()
+		chunks = append(chunks, chunk)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating document chunks: %w", err)
+	}
+
+	return chunks, nil
+}
+
+func updateRawStorageChecksum(ctx context.Context, tx *sql.Tx, result processing.ParseResult) error {
+	if result.RawStorageKey == "" || result.RawSHA256 == "" {
+		return nil
+	}
+
+	_, err := tx.ExecContext(
+		ctx,
+		`UPDATE storage_objects
+		 SET checksum_sha256 = $1
+		 WHERE owner_type = $2
+		   AND owner_id = $3
+		   AND storage_key = $4
+		   AND kind = $5`,
+		result.RawSHA256,
+		string(storage.OwnerDocument),
+		result.DocumentID,
+		result.RawStorageKey,
+		string(storage.KindRaw),
+	)
+	if err != nil {
+		return fmt.Errorf("updating raw storage checksum: %w", err)
+	}
+
+	return nil
 }
 
 func nullableString(value string) any {
@@ -592,6 +846,51 @@ func scanJob(scanner jobScanner) (*processing.Job, error) {
 	return &job, nil
 }
 
+func scanOutboxEvent(scanner jobScanner) (*processing.OutboxEvent, error) {
+	var event processing.OutboxEvent
+	var payload []byte
+	var status string
+	var lastError sql.NullString
+	var publishedAt sql.NullTime
+
+	err := scanner.Scan(
+		&event.ID,
+		&event.EventType,
+		&event.AggregateType,
+		&event.AggregateID,
+		&payload,
+		&status,
+		&event.Attempts,
+		&lastError,
+		&event.CreatedAt,
+		&publishedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(payload) > 0 {
+		if err = json.Unmarshal(payload, &event.Payload); err != nil {
+			return nil, fmt.Errorf("unmarshaling outbox payload: %w", err)
+		}
+	}
+	if event.Payload == nil {
+		event.Payload = map[string]any{}
+	}
+
+	event.Status = processing.OutboxStatus(status)
+	if lastError.Valid {
+		event.LastError = lastError.String
+	}
+	if publishedAt.Valid {
+		value := publishedAt.Time.UTC()
+		event.PublishedAt = &value
+	}
+	event.CreatedAt = event.CreatedAt.UTC()
+
+	return &event, nil
+}
+
 func insertChunk(ctx context.Context, tx *sql.Tx, documentID string, index int, chunk processing.DocumentChunk) error {
 	if len(chunk.Embedding) == 0 {
 		_, err := tx.ExecContext(
@@ -630,12 +929,26 @@ func insertChunk(ctx context.Context, tx *sql.Tx, documentID string, index int, 
 }
 
 func insertParsedAuditEvent(ctx context.Context, tx *sql.Tx, jobID string, result processing.ParseResult) error {
-	metadata, err := json.Marshal(map[string]string{
+	auditMetadata := map[string]string{
 		"filename": result.Filename,
 		"pages":    strconv.Itoa(result.Pages),
 		"tables":   strconv.Itoa(len(result.Tables)),
 		"chunks":   strconv.Itoa(len(result.Chunks)),
-	})
+	}
+	if result.RawSHA256 != "" {
+		auditMetadata["raw_sha256"] = result.RawSHA256
+	}
+	if result.TextSHA256 != "" {
+		auditMetadata["text_sha256"] = result.TextSHA256
+	}
+	if result.MarkdownSHA256 != "" {
+		auditMetadata["markdown_sha256"] = result.MarkdownSHA256
+	}
+	if result.TablesSHA256 != "" {
+		auditMetadata["tables_sha256"] = result.TablesSHA256
+	}
+
+	metadata, err := json.Marshal(auditMetadata)
 	if err != nil {
 		return fmt.Errorf("marshaling parsed audit metadata: %w", err)
 	}

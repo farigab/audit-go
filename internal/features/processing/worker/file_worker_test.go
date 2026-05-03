@@ -58,6 +58,15 @@ func TestRunOnceCompletesParseJob(t *testing.T) {
 	if jobs.completed.DocumentID != "00000000-0000-0000-0000-000000000001" {
 		t.Fatalf("expected document id to be set on result, got %q", jobs.completed.DocumentID)
 	}
+	if jobs.completed.RawStorageKey != "jvs/00000000-0000-0000-0000-000000000002/documents/00000000-0000-0000-0000-000000000001/raw/report.pdf" {
+		t.Fatalf("expected raw storage key to be set, got %q", jobs.completed.RawStorageKey)
+	}
+	if len(jobs.completed.RawSHA256) != 64 {
+		t.Fatalf("expected raw sha256 checksum, got %q", jobs.completed.RawSHA256)
+	}
+	if len(jobs.completed.MarkdownSHA256) != 64 || len(jobs.completed.TablesSHA256) != 64 {
+		t.Fatalf("expected parsed artifact checksums, got markdown=%q tables=%q", jobs.completed.MarkdownSHA256, jobs.completed.TablesSHA256)
+	}
 	if len(jobs.completed.Chunks) != 1 || jobs.completed.Chunks[0].Content == "" {
 		t.Fatalf("expected parsed chunks, got %#v", jobs.completed.Chunks)
 	}

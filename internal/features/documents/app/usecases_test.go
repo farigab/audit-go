@@ -334,6 +334,85 @@ func TestGetDocumentProcessingStatusReturnsJobAndParseSummary(t *testing.T) {
 	}
 }
 
+func TestListDocumentChunksAuthorizesReadAndReturnsPage(t *testing.T) {
+	doc := documents.Document{
+		ID:        "00000000-0000-0000-0000-000000000002",
+		JVID:      validJVID,
+		Name:      "contract.pdf",
+		Status:    documents.StatusParsed,
+		Processed: true,
+	}
+	createdAt := time.Now().UTC()
+	chunks := []processing.DocumentChunkRecord{
+		{
+			ID:         "00000000-0000-0000-0000-000000000030",
+			DocumentID: doc.ID,
+			Index:      0,
+			Content:    "first chunk",
+			CreatedAt:  createdAt,
+		},
+	}
+	repo := &fakeDocumentRepository{findDoc: &doc}
+	processingRepo := &fakeProcessingRepository{chunks: chunks}
+	auth := &fakeAuthorizer{}
+	uc := ListDocumentChunksUseCase{
+		DocRepo:        repo,
+		ProcessingRepo: processingRepo,
+		Authorizer:     auth,
+	}
+
+	page, err := uc.Execute(context.Background(), access.Principal{Login: "auditor@example.com"}, ListDocumentChunksInput{
+		DocumentID: doc.ID,
+		Limit:      25,
+		Offset:     5,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if auth.permission != access.PermissionDocumentRead {
+		t.Fatalf("expected document read permission, got %q", auth.permission)
+	}
+	if processingRepo.listChunksDocumentID != doc.ID {
+		t.Fatalf("expected chunks lookup for document %q, got %q", doc.ID, processingRepo.listChunksDocumentID)
+	}
+	if processingRepo.listChunksLimit != 25 || processingRepo.listChunksOffset != 5 {
+		t.Fatalf("unexpected pagination limit=%d offset=%d", processingRepo.listChunksLimit, processingRepo.listChunksOffset)
+	}
+	if page.Count != 1 || len(page.Chunks) != 1 || page.Chunks[0].Content != "first chunk" {
+		t.Fatalf("unexpected chunks page: %#v", page)
+	}
+}
+
+func TestListDocumentChunksDefaultsAndCapsLimit(t *testing.T) {
+	doc := documents.Document{
+		ID:   "00000000-0000-0000-0000-000000000002",
+		JVID: validJVID,
+	}
+	repo := &fakeDocumentRepository{findDoc: &doc}
+	processingRepo := &fakeProcessingRepository{}
+	uc := ListDocumentChunksUseCase{
+		DocRepo:        repo,
+		ProcessingRepo: processingRepo,
+		Authorizer:     &fakeAuthorizer{},
+	}
+
+	page, err := uc.Execute(context.Background(), access.Principal{Login: "auditor@example.com"}, ListDocumentChunksInput{
+		DocumentID: doc.ID,
+		Limit:      1000,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if page.Limit != maxDocumentChunkLimit {
+		t.Fatalf("expected capped limit %d, got %d", maxDocumentChunkLimit, page.Limit)
+	}
+	if processingRepo.listChunksLimit != maxDocumentChunkLimit {
+		t.Fatalf("expected repository limit %d, got %d", maxDocumentChunkLimit, processingRepo.listChunksLimit)
+	}
+}
+
 type fakeDocumentRepository struct {
 	docs       []documents.Document
 	findDoc    *documents.Document
@@ -423,10 +502,14 @@ func (f *fakeBlobGateway) GetProperties(_ context.Context, storageKey string) (s
 }
 
 type fakeProcessingRepository struct {
-	events       []processing.OutboxEvent
-	jobs         []processing.Job
-	latestJob    *processing.Job
-	parseSummary *processing.ParseResultSummary
+	events               []processing.OutboxEvent
+	jobs                 []processing.Job
+	latestJob            *processing.Job
+	parseSummary         *processing.ParseResultSummary
+	chunks               []processing.DocumentChunkRecord
+	listChunksDocumentID string
+	listChunksLimit      int
+	listChunksOffset     int
 }
 
 func (f *fakeProcessingRepository) SaveOutboxEvent(_ context.Context, event processing.OutboxEvent) error {
@@ -452,6 +535,18 @@ func (f *fakeProcessingRepository) FindParseResultSummary(
 	string,
 ) (*processing.ParseResultSummary, error) {
 	return f.parseSummary, nil
+}
+
+func (f *fakeProcessingRepository) ListDocumentChunks(
+	_ context.Context,
+	documentID string,
+	limit int,
+	offset int,
+) ([]processing.DocumentChunkRecord, error) {
+	f.listChunksDocumentID = documentID
+	f.listChunksLimit = limit
+	f.listChunksOffset = offset
+	return f.chunks, nil
 }
 
 type fakeAuthorizer struct {

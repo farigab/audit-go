@@ -33,8 +33,9 @@ fetch("http://localhost:8080/auth/me", {
 | Documents metadata | Disponivel | Criar, buscar, listar por JV, deletar |
 | Upload Blob | Disponivel | URL assinada para upload direto ao Azure Blob |
 | Processing status | Disponivel | `document.status` no payload e endpoint dedicado por documento |
+| Processed chunks | Disponivel | Consulta paginada de chunks extraidos por documento |
 | Storage metadata | Interno | Persistido no backend; frontend nao chama direto |
-| Outbox/jobs | Interno | Persistido no backend; frontend nao chama direto |
+| Outbox/jobs | Interno | Persistido e publicado internamente; frontend nao chama direto |
 | Regions CRUD | Disponivel | CRUD autenticado com permissao por escopo |
 | Joint Ventures CRUD | Disponivel | CRUD autenticado com heranca system/region/JV |
 | Memberships | Disponivel | Administracao de acessos por system/region/JV |
@@ -133,6 +134,7 @@ Documents:
 - `GET /joint-ventures/{jvID}/documents`
 - `GET /documents/get?id=`
 - `GET /documents/{documentID}/processing-status`
+- `GET /documents/{documentID}/chunks`
 - `DELETE /documents/delete?id=`
 
 Upload:
@@ -316,7 +318,27 @@ export type DocumentParseResultSummary = {
   markdown_bytes: number;
   tables_count: number;
   chunks_count: number;
+  raw_sha256?: string;
+  text_sha256?: string;
+  markdown_sha256?: string;
+  tables_sha256?: string;
   last_parsed_at?: string;
+};
+
+export type DocumentChunkRecord = {
+  id: string;
+  document_id: string;
+  index: number;
+  content: string;
+  created_at: string;
+};
+
+export type DocumentChunksPage = {
+  document_id: string;
+  chunks: DocumentChunkRecord[];
+  limit: number;
+  offset: number;
+  count: number;
 };
 
 export type DocumentProcessingStatusResponse = {
@@ -721,6 +743,10 @@ Resposta `200`:
     "markdown_bytes": 13000,
     "tables_count": 2,
     "chunks_count": 8,
+    "raw_sha256": "64-char-hex-sha256",
+    "text_sha256": "64-char-hex-sha256",
+    "markdown_sha256": "64-char-hex-sha256",
+    "tables_sha256": "64-char-hex-sha256",
     "last_parsed_at": "2026-05-02T12:01:00Z"
   }
 }
@@ -732,6 +758,54 @@ Status:
 | --- | --- |
 | `200` | Status retornado |
 | `400` | `documentID` invalido ou ausente |
+| `401` | Sem sessao valida |
+| `403` | Sem permissao no escopo da JV |
+| `404` | Documento nao encontrado |
+
+### GET `/documents/{documentID}/chunks`
+
+Lista chunks processados de um documento. O endpoint exige permissao de leitura no escopo da JV dona do documento.
+
+Query params:
+
+| Nome | Obrigatorio | Default | Max | Descricao |
+| --- | --- | --- | --- | --- |
+| `limit` | Nao | `50` | `200` | Quantidade de chunks retornados |
+| `offset` | Nao | `0` | - | Offset para paginacao |
+
+Request:
+
+```ts
+const response = await apiFetch(`/documents/${documentId}/chunks?limit=50&offset=0`);
+const page = (await response.json()) as DocumentChunksPage;
+```
+
+Resposta `200`:
+
+```json
+{
+  "document_id": "document-uuid",
+  "chunks": [
+    {
+      "id": "chunk-uuid",
+      "document_id": "document-uuid",
+      "index": 0,
+      "content": "texto normalizado do chunk",
+      "created_at": "2026-05-02T12:01:00Z"
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "count": 1
+}
+```
+
+Status:
+
+| Status | Motivo |
+| --- | --- |
+| `200` | Chunks retornados, possivelmente lista vazia se o documento ainda nao foi parseado |
+| `400` | `documentID`, `limit` ou `offset` invalido |
 | `401` | Sem sessao valida |
 | `403` | Sem permissao no escopo da JV |
 | `404` | Documento nao encontrado |
@@ -821,6 +895,7 @@ Fluxo implementado hoje:
 4. Frontend faz `PUT` direto no Azure Blob usando a URL assinada.
 5. Frontend chama `POST /documents/{documentID}/upload-complete`.
 6. Backend valida o blob, persiste metadados tecnicos e marca o documento como `queued`.
+7. Worker calcula SHA-256 do arquivo bruto e dos artefatos parseados ao concluir o processamento.
 
 ### POST `/joint-ventures/{jvID}/documents/upload-url`
 

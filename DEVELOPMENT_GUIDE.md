@@ -1095,15 +1095,17 @@ mutação de dado + audit_event devem acontecer na mesma transação
 - [x] Criar upload URL/SAS para Azure Blob.
 - [x] Criar confirmação de upload.
 - [x] Persistir `storage_objects`.
-- [ ] Persistir checksum SHA-256.
+- [x] Persistir checksum SHA-256.
 - [x] Expor status dedicado de processamento além do campo `document.status`.
+- [x] Criar endpoint de consulta de chunks processados.
+- [ ] Estruturar extração/consulta de páginas processadas.
 - [x] Registrar audit events transacionais.
 
 ### Fase 5 — Processing, fila e outbox
 
 - [x] Criar `outbox_events`.
 - [x] Criar `processing_jobs`.
-- [ ] Criar outbox publisher.
+- [x] Criar outbox publisher.
 - [ ] Integrar Azure Service Bus ou RabbitMQ.
 - [x] Criar worker Go idempotente.
 - [x] Chamar Python `/parse`.
@@ -1282,14 +1284,12 @@ audit_run_id quando houver
 - Validar hierarquia region -> JV.
 
 [documents/storage]
-- Persistir checksum SHA-256.
 - Expor status dedicado de processamento.
-- Criar endpoints de consulta de páginas/chunks processados.
+- Estruturar extração/consulta de páginas processadas.
 
 [queue/processing]
 - Criar outbox_events.
 - Criar processing_jobs.
-- Criar outbox publisher.
 - Integrar Azure Service Bus ou RabbitMQ.
 - Criar worker.
 - Implementar retry/dead-letter.

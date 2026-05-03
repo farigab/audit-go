@@ -92,16 +92,30 @@ type DocumentChunk struct {
 	Embedding []float64 `json:"embedding,omitempty"`
 }
 
+// DocumentChunkRecord is a persisted chunk returned by query APIs.
+type DocumentChunkRecord struct {
+	ID         string    `json:"id"`
+	DocumentID string    `json:"document_id"`
+	Index      int       `json:"index"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // ParseResult is the normalized parsed output stored by the Go worker.
 type ParseResult struct {
-	DocumentID string          `json:"document_id,omitempty"`
-	Filename   string          `json:"filename"`
-	Pages      int             `json:"pages"`
-	Text       string          `json:"text"`
-	Markdown   string          `json:"markdown"`
-	Tables     []ParsedTable   `json:"tables"`
-	Chunks     []DocumentChunk `json:"chunks,omitempty"`
-	ParsedAt   time.Time       `json:"parsed_at,omitempty"`
+	DocumentID     string          `json:"document_id,omitempty"`
+	RawStorageKey  string          `json:"raw_storage_key,omitempty"`
+	Filename       string          `json:"filename"`
+	Pages          int             `json:"pages"`
+	Text           string          `json:"text"`
+	Markdown       string          `json:"markdown"`
+	Tables         []ParsedTable   `json:"tables"`
+	Chunks         []DocumentChunk `json:"chunks,omitempty"`
+	RawSHA256      string          `json:"raw_sha256,omitempty"`
+	TextSHA256     string          `json:"text_sha256,omitempty"`
+	MarkdownSHA256 string          `json:"markdown_sha256,omitempty"`
+	TablesSHA256   string          `json:"tables_sha256,omitempty"`
+	ParsedAt       time.Time       `json:"parsed_at,omitempty"`
 }
 
 // ParseResultSummary is a lightweight status view for parsed artifacts.
@@ -113,15 +127,28 @@ type ParseResultSummary struct {
 	MarkdownBytes   int        `json:"markdown_bytes"`
 	TablesCount     int        `json:"tables_count"`
 	ChunksCount     int        `json:"chunks_count"`
+	RawSHA256       string     `json:"raw_sha256,omitempty"`
+	TextSHA256      string     `json:"text_sha256,omitempty"`
+	MarkdownSHA256  string     `json:"markdown_sha256,omitempty"`
+	TablesSHA256    string     `json:"tables_sha256,omitempty"`
 	LastParsedAt    *time.Time `json:"last_parsed_at,omitempty"`
 	LastCompletedAt *time.Time `json:"last_completed_at,omitempty"`
 }
 
 // DecodeParseDocumentPayload converts the job JSON payload into a typed value.
 func DecodeParseDocumentPayload(job Job) (ParseDocumentPayload, error) {
-	payload, err := json.Marshal(job.Payload)
+	return decodeParseDocumentPayload(job.Payload)
+}
+
+// DecodeDocumentUploadedPayload converts the outbox JSON payload into a typed value.
+func DecodeDocumentUploadedPayload(event OutboxEvent) (ParseDocumentPayload, error) {
+	return decodeParseDocumentPayload(event.Payload)
+}
+
+func decodeParseDocumentPayload(payloadMap map[string]any) (ParseDocumentPayload, error) {
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
-		return ParseDocumentPayload{}, fmt.Errorf("marshaling job payload: %w", err)
+		return ParseDocumentPayload{}, fmt.Errorf("marshaling parse document payload: %w", err)
 	}
 
 	var parsed ParseDocumentPayload

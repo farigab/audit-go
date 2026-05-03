@@ -18,7 +18,11 @@ import (
 	"audit-go/internal/platform/storage"
 )
 
-const defaultDocumentContainer = "documents"
+const (
+	defaultDocumentContainer  = "documents"
+	defaultDocumentChunkLimit = 50
+	maxDocumentChunkLimit     = 200
+)
 
 var (
 	ErrInvalidInput         = errors.New("documents: invalid input")
@@ -58,6 +62,10 @@ type processingStatusRepository interface {
 	FindParseResultSummary(ctx context.Context, documentID string) (*processing.ParseResultSummary, error)
 }
 
+type documentChunksRepository interface {
+	ListDocumentChunks(ctx context.Context, documentID string, limit int, offset int) ([]processing.DocumentChunkRecord, error)
+}
+
 type authorizer interface {
 	CanAccessJV(ctx context.Context, principal access.Principal, jvID string, permission access.Permission) error
 }
@@ -84,6 +92,22 @@ type DocumentProcessingJobStatus struct {
 	LockedUntil    *time.Time           `json:"locked_until,omitempty"`
 	LastError      string               `json:"last_error,omitempty"`
 	LastTransition time.Time            `json:"last_transition"`
+}
+
+// ListDocumentChunksInput describes a paginated chunk query.
+type ListDocumentChunksInput struct {
+	DocumentID string
+	Limit      int
+	Offset     int
+}
+
+// DocumentChunksPage is a paginated response for processed chunks.
+type DocumentChunksPage struct {
+	DocumentID string                           `json:"document_id"`
+	Chunks     []processing.DocumentChunkRecord `json:"chunks"`
+	Limit      int                              `json:"limit"`
+	Offset     int                              `json:"offset"`
+	Count      int                              `json:"count"`
 }
 
 // CreateDocumentUseCase creates document metadata and records an audit event.
@@ -657,6 +681,77 @@ func (u GetDocumentProcessingStatusUseCase) Execute(
 	status.ParseResult = parseResult
 
 	return status, nil
+}
+
+// ListDocumentChunksUseCase returns processed chunks after authorizing document read.
+type ListDocumentChunksUseCase struct {
+	DocRepo        documentRepository
+	ProcessingRepo documentChunksRepository
+	Authorizer     authorizer
+}
+
+// Execute returns a paginated list of processed document chunks.
+func (u ListDocumentChunksUseCase) Execute(
+	ctx context.Context,
+	actor access.Principal,
+	input ListDocumentChunksInput,
+) (*DocumentChunksPage, error) {
+	limit, offset, err := normalizeChunkPagination(input.Limit, input.Offset)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := uuid.Parse(input.DocumentID); err != nil {
+		return nil, fmt.Errorf("%w: invalid document id", ErrInvalidInput)
+	}
+
+	doc, err := u.DocRepo.FindByID(ctx, input.DocumentID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNotFound, err)
+	}
+	if doc == nil {
+		return nil, ErrNotFound
+	}
+	if err := u.Authorizer.CanAccessJV(ctx, actor, doc.JVID, access.PermissionDocumentRead); err != nil {
+		return nil, err
+	}
+
+	page := &DocumentChunksPage{
+		DocumentID: input.DocumentID,
+		Chunks:     []processing.DocumentChunkRecord{},
+		Limit:      limit,
+		Offset:     offset,
+	}
+	if u.ProcessingRepo == nil {
+		return page, nil
+	}
+
+	chunks, err := u.ProcessingRepo.ListDocumentChunks(ctx, input.DocumentID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("listing document chunks: %w", err)
+	}
+	if chunks != nil {
+		page.Chunks = chunks
+	}
+	page.Count = len(page.Chunks)
+
+	return page, nil
+}
+
+func normalizeChunkPagination(limit int, offset int) (int, int, error) {
+	if offset < 0 {
+		return 0, 0, fmt.Errorf("%w: invalid offset", ErrInvalidInput)
+	}
+	if limit < 0 {
+		return 0, 0, fmt.Errorf("%w: invalid limit", ErrInvalidInput)
+	}
+	if limit == 0 {
+		limit = defaultDocumentChunkLimit
+	}
+	if limit > maxDocumentChunkLimit {
+		limit = maxDocumentChunkLimit
+	}
+
+	return limit, offset, nil
 }
 
 // ListDocumentsByJVUseCase lists documents after authorizing the JV scope.

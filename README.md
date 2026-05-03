@@ -131,6 +131,8 @@ psql "$DB_URL" -f db/migrations/007_create_audit_events.sql
 psql "$DB_URL" -f db/migrations/008_enable_pgvector.sql
 psql "$DB_URL" -f db/migrations/009_create_storage_and_processing.sql
 psql "$DB_URL" -f db/migrations/010_add_upload_confirmation_metadata.sql
+psql "$DB_URL" -f db/migrations/011_create_document_parse_results.sql
+psql "$DB_URL" -f db/migrations/012_add_parse_result_checksums.sql
 ```
 
 ## Frontend Quick Start
@@ -204,6 +206,7 @@ POST   /documents/{documentID}/upload-complete
 GET    /documents/get?id=
 DELETE /documents/delete?id=
 GET    /joint-ventures/{jvID}/documents
+GET    /documents/{documentID}/chunks
 ```
 
 `POST /documents`:
@@ -219,7 +222,7 @@ GET    /joint-ventures/{jvID}/documents
 
 Document types: `contract`, `financial`, `report`, `other`.
 
-`POST /documents` creates the document with `status: "queued"` and, in the same PostgreSQL transaction, stores raw blob metadata in `storage_objects`, records the audit event, writes a `DocumentUploaded` outbox event, and creates an idempotent `parse_document:{document_id}:v1` processing job.
+`POST /documents` creates the document with `status: "queued"` and, in the same PostgreSQL transaction, stores raw blob metadata in `storage_objects`, records the audit event, writes a `DocumentUploaded` outbox event, and creates an idempotent `parse_document:{document_id}:v1` processing job. The internal outbox publisher also drains pending `DocumentUploaded` events into the same idempotent job key and marks them as published.
 
 Preferred direct upload flow for browser clients:
 
@@ -235,7 +238,13 @@ Processing status can be queried with:
 GET /documents/{documentID}/processing-status
 ```
 
-The response includes the document, latest processing job state, retry/dead-letter details when present, and a summary of persisted parse artifacts.
+The response includes the document, latest processing job state, retry/dead-letter details when present, and a summary of persisted parse artifacts with SHA-256 checksums.
+
+Processed chunks can be queried with:
+
+```http
+GET /documents/{documentID}/chunks?limit=50&offset=0
+```
 
 Azure upload configuration:
 
@@ -297,6 +306,5 @@ uvicorn main:app --reload --port 8000
 
 ## Next Steps
 
-- Persist SHA-256 checksums for uploaded and parsed document artifacts.
-- Add an outbox publisher and external queue integration when the PostgreSQL-backed worker needs to scale beyond the MVP.
+- Add external queue integration when the PostgreSQL-backed worker needs to scale beyond the MVP.
 - Build prompt management, audit runs/findings, and report generation.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	nethttp "net/http"
+	"strconv"
 
 	"github.com/rs/zerolog"
 
@@ -25,6 +26,7 @@ type Handler struct {
 	deleteDocument         app.DeleteDocumentUseCase
 	getDocument            app.GetDocumentUseCase
 	getProcessingStatus    app.GetDocumentProcessingStatusUseCase
+	listDocumentChunks     app.ListDocumentChunksUseCase
 	listDocuments          app.ListDocumentsByJVUseCase
 }
 
@@ -37,6 +39,7 @@ func NewHandler(
 	del app.DeleteDocumentUseCase,
 	get app.GetDocumentUseCase,
 	getProcessingStatus app.GetDocumentProcessingStatusUseCase,
+	listChunks app.ListDocumentChunksUseCase,
 	list app.ListDocumentsByJVUseCase,
 ) Handler {
 	return Handler{
@@ -47,6 +50,7 @@ func NewHandler(
 		deleteDocument:         del,
 		getDocument:            get,
 		getProcessingStatus:    getProcessingStatus,
+		listDocumentChunks:     listChunks,
 		listDocuments:          list,
 	}
 }
@@ -57,6 +61,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, auth func(nethttp.Handler) nethttp.Ha
 	mux.Handle("POST /joint-ventures/{jvID}/documents/upload-url", auth(nethttp.HandlerFunc(h.RequestDocumentUpload)))
 	mux.Handle("POST /documents/{documentID}/upload-complete", auth(nethttp.HandlerFunc(h.CompleteDocumentUpload)))
 	mux.Handle("GET /documents/{documentID}/processing-status", auth(nethttp.HandlerFunc(h.GetDocumentProcessingStatus)))
+	mux.Handle("GET /documents/{documentID}/chunks", auth(nethttp.HandlerFunc(h.ListDocumentChunks)))
 	mux.Handle("GET /documents/get", auth(nethttp.HandlerFunc(h.GetDocument)))
 	mux.Handle("DELETE /documents/delete", auth(nethttp.HandlerFunc(h.DeleteDocument)))
 	mux.Handle("GET /joint-ventures/{jvID}/documents", auth(nethttp.HandlerFunc(h.ListDocumentsByJV)))
@@ -241,6 +246,46 @@ func (h Handler) GetDocumentProcessingStatus(w nethttp.ResponseWriter, r *nethtt
 	}
 }
 
+// ListDocumentChunks handles GET /documents/{documentID}/chunks.
+func (h Handler) ListDocumentChunks(w nethttp.ResponseWriter, r *nethttp.Request) {
+	documentID := r.PathValue("documentID")
+	if documentID == "" {
+		h.writeError(w, r, nethttp.StatusBadRequest, "documentID is required")
+		return
+	}
+
+	limit, err := parseOptionalIntQuery(r, "limit")
+	if err != nil {
+		h.writeError(w, r, nethttp.StatusBadRequest, "invalid limit")
+		return
+	}
+	offset, err := parseOptionalIntQuery(r, "offset")
+	if err != nil {
+		h.writeError(w, r, nethttp.StatusBadRequest, "invalid offset")
+		return
+	}
+
+	principal, ok := access.PrincipalFromContext(r.Context())
+	if !ok {
+		h.writeError(w, r, nethttp.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	page, err := h.listDocumentChunks.Execute(r.Context(), principal, app.ListDocumentChunksInput{
+		DocumentID: documentID,
+		Limit:      limit,
+		Offset:     offset,
+	})
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	if err = httpx.WriteJSON(w, nethttp.StatusOK, page); err != nil {
+		h.logWriteError(r, err)
+	}
+}
+
 // ListDocumentsByJV handles GET /joint-ventures/{jvID}/documents.
 func (h Handler) ListDocumentsByJV(w nethttp.ResponseWriter, r *nethttp.Request) {
 	jvID := r.PathValue("jvID")
@@ -294,6 +339,19 @@ func (h Handler) DeleteDocument(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}); err != nil {
 		h.logWriteError(r, err)
 	}
+}
+
+func parseOptionalIntQuery(r *nethttp.Request, key string) (int, error) {
+	value := r.URL.Query().Get(key)
+	if value == "" {
+		return 0, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, err
+	}
+	return parsed, nil
 }
 
 func (h Handler) writeUseCaseError(w nethttp.ResponseWriter, r *nethttp.Request, err error) {

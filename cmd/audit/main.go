@@ -142,6 +142,12 @@ func main() {
 		Authorizer:     authorizer,
 	}
 
+	listDocumentChunks := documentsapp.ListDocumentChunksUseCase{
+		DocRepo:        docRepo,
+		ProcessingRepo: processingRepo,
+		Authorizer:     authorizer,
+	}
+
 	listDocsByJV := documentsapp.ListDocumentsByJVUseCase{
 		DocRepo:    docRepo,
 		Authorizer: authorizer,
@@ -238,6 +244,7 @@ func main() {
 			deleteDoc,
 			getDoc,
 			getProcessingStatus,
+			listDocumentChunks,
 			listDocsByJV,
 		),
 	)
@@ -253,6 +260,9 @@ func main() {
 	defer stop()
 
 	// worker
+	outboxPublisher := processingworker.NewOutboxPublisher(log, processingRepo)
+	go outboxPublisher.Start(ctx)
+
 	if blobStore != nil {
 		w := processingworker.New(log, processingRepo, blobStore, pythonClient)
 		go w.Start(ctx)

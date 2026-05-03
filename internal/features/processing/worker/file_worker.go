@@ -3,6 +3,9 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -203,11 +206,19 @@ func (w *FileWorker) processJob(ctx context.Context, job processing.Job) error {
 	}
 
 	result.DocumentID = payload.DocumentID
+	result.RawStorageKey = payload.StorageKey
 	if result.Filename == "" {
 		result.Filename = filename
 	}
 	result.ParsedAt = time.Now().UTC()
 	result.Chunks = buildChunks(result.Markdown, result.Text)
+	result.RawSHA256 = checksumBytes(blob.Content)
+	result.TextSHA256 = checksumString(result.Text)
+	result.MarkdownSHA256 = checksumString(result.Markdown)
+	result.TablesSHA256, err = checksumJSON(result.Tables)
+	if err != nil {
+		return err
+	}
 
 	if err = w.jobs.CompleteParseJob(ctx, job.ID, *result); err != nil {
 		return fmt.Errorf("persisting parsed document: %w", err)
@@ -320,4 +331,21 @@ func splitRunes(value string, size int) []string {
 
 func runeLen(value string) int {
 	return len([]rune(value))
+}
+
+func checksumBytes(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+func checksumString(value string) string {
+	return checksumBytes([]byte(value))
+}
+
+func checksumJSON(value any) (string, error) {
+	content, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("marshaling artifact for checksum: %w", err)
+	}
+	return checksumBytes(content), nil
 }
