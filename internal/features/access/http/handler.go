@@ -84,6 +84,7 @@ func (h Handler) Callback(w http.ResponseWriter, r *http.Request) {
 func (h Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	refresh, err := r.Cookie(RefreshCookie)
 	if err != nil || refresh.Value == "" {
+		h.clearAuthCookies(w)
 		h.writeError(w, r, http.StatusUnauthorized, "missing refresh token")
 		return
 	}
