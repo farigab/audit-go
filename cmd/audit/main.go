@@ -17,9 +17,15 @@ import (
 	documentsapp "audit-go/internal/features/documents/app"
 	documentshttp "audit-go/internal/features/documents/http"
 	documentpostgres "audit-go/internal/features/documents/postgres"
+	jointventuresapp "audit-go/internal/features/jointventures/app"
+	jointventureshttp "audit-go/internal/features/jointventures/http"
+	jointventurespostgres "audit-go/internal/features/jointventures/postgres"
 	processingpostgres "audit-go/internal/features/processing/postgres"
 	processingpython "audit-go/internal/features/processing/python"
 	processingworker "audit-go/internal/features/processing/worker"
+	regionsapp "audit-go/internal/features/regions/app"
+	regionshttp "audit-go/internal/features/regions/http"
+	regionspostgres "audit-go/internal/features/regions/postgres"
 	"audit-go/internal/platform/config"
 	"audit-go/internal/platform/httpx"
 	"audit-go/internal/platform/httpx/middleware"
@@ -51,6 +57,9 @@ func main() {
 	processingRepo := processingpostgres.NewRepository(db)
 	pythonClient := processingpython.NewClient(cfg.PythonServiceURL)
 	authorizer := accesspostgres.NewAuthorizer(db)
+	membershipRepo := accesspostgres.NewMembershipRepository(db)
+	regionRepo := regionspostgres.NewRepository(db)
+	jointVentureRepo := jointventurespostgres.NewRepository(db)
 	sessionRepo := accesspostgres.NewSessionRepository(db)
 	transactor := platformpostgres.NewTransactor(db)
 	blobStore, err := storage.NewAzureBlobStore(storage.AzureBlobConfig{
@@ -138,6 +147,55 @@ func main() {
 		Authorizer: authorizer,
 	}
 
+	createMembership := accessapp.CreateMembershipUseCase{
+		Repo:       membershipRepo,
+		Authorizer: authorizer,
+	}
+	listMemberships := accessapp.ListMembershipsUseCase{
+		Repo:       membershipRepo,
+		Authorizer: authorizer,
+	}
+	deleteMembership := accessapp.DeleteMembershipUseCase{
+		Repo:       membershipRepo,
+		Authorizer: authorizer,
+	}
+
+	createRegion := regionsapp.CreateRegionUseCase{
+		Repo:       regionRepo,
+		Authorizer: authorizer,
+	}
+	listRegions := regionsapp.ListRegionsUseCase{Repo: regionRepo}
+	getRegion := regionsapp.GetRegionUseCase{
+		Repo:       regionRepo,
+		Authorizer: authorizer,
+	}
+	updateRegion := regionsapp.UpdateRegionUseCase{
+		Repo:       regionRepo,
+		Authorizer: authorizer,
+	}
+	deleteRegion := regionsapp.DeleteRegionUseCase{
+		Repo:       regionRepo,
+		Authorizer: authorizer,
+	}
+
+	createJV := jointventuresapp.CreateJointVentureUseCase{
+		Repo:       jointVentureRepo,
+		Authorizer: authorizer,
+	}
+	listJVsByRegion := jointventuresapp.ListJointVenturesByRegionUseCase{Repo: jointVentureRepo}
+	getJV := jointventuresapp.GetJointVentureUseCase{
+		Repo:       jointVentureRepo,
+		Authorizer: authorizer,
+	}
+	updateJV := jointventuresapp.UpdateJointVentureUseCase{
+		Repo:       jointVentureRepo,
+		Authorizer: authorizer,
+	}
+	deleteJV := jointventuresapp.DeleteJointVentureUseCase{
+		Repo:       jointVentureRepo,
+		Authorizer: authorizer,
+	}
+
 	// router
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +209,23 @@ func main() {
 		mux,
 		auth,
 		accesshttp.NewHandler(log, authService, cookieCfg),
+	)
+	accesshttp.RegisterMembershipRoutes(
+		mux,
+		auth,
+		accesshttp.NewMembershipHandler(log, createMembership, listMemberships, deleteMembership),
+	)
+	regionshttp.RegisterRoutes(
+		mux,
+		auth,
+		authorizer,
+		regionshttp.NewHandler(log, createRegion, listRegions, getRegion, updateRegion, deleteRegion),
+	)
+	jointventureshttp.RegisterRoutes(
+		mux,
+		auth,
+		authorizer,
+		jointventureshttp.NewHandler(log, createJV, listJVsByRegion, getJV, updateJV, deleteJV),
 	)
 	documentshttp.RegisterRoutes(
 		mux,

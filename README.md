@@ -297,4 +297,6 @@ uvicorn main:app --reload --port 8000
 
 ## Next Steps
 
-- Add region and joint venture CRUD endpoints.
+- Persist SHA-256 checksums for uploaded and parsed document artifacts.
+- Add an outbox publisher and external queue integration when the PostgreSQL-backed worker needs to scale beyond the MVP.
+- Build prompt management, audit runs/findings, and report generation.

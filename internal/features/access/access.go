@@ -4,6 +4,7 @@ package access
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 type principalKey struct{}
@@ -34,6 +35,18 @@ const (
 	PermissionDocumentCreate Permission = "document:create"
 	PermissionDocumentRead   Permission = "document:read"
 	PermissionDocumentDelete Permission = "document:delete"
+
+	PermissionRegionCreate Permission = "region:create"
+	PermissionRegionRead   Permission = "region:read"
+	PermissionRegionUpdate Permission = "region:update"
+	PermissionRegionDelete Permission = "region:delete"
+
+	PermissionJVCreate Permission = "joint_venture:create"
+	PermissionJVRead   Permission = "joint_venture:read"
+	PermissionJVUpdate Permission = "joint_venture:update"
+	PermissionJVDelete Permission = "joint_venture:delete"
+
+	PermissionMembershipManage Permission = "membership:manage"
 )
 
 // ScopeType describes where a role applies.
@@ -51,6 +64,16 @@ type Principal struct {
 	Login string
 	Name  string
 	Roles []Role
+}
+
+// Membership grants a role to a user within a specific authorization scope.
+type Membership struct {
+	ID        string    `json:"id"`
+	UserLogin string    `json:"user_login"`
+	Role      Role      `json:"role"`
+	ScopeType ScopeType `json:"scope_type"`
+	ScopeID   string    `json:"scope_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // UserKey returns the stable key used by access membership rows.
@@ -99,6 +122,35 @@ func RolesFromStrings(values []string) []Role {
 	return roles
 }
 
+// IsValidRole reports whether role is supported by the application.
+func IsValidRole(role Role) bool {
+	switch role {
+	case RoleAdmin, RoleRegionAdmin, RoleJVAdmin, RoleContributor, RoleAuditor, RoleVisitor:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsValidScopeType reports whether scopeType is a supported membership scope.
+func IsValidScopeType(scopeType ScopeType) bool {
+	switch scopeType {
+	case ScopeSystem, ScopeRegion, ScopeJointVenture:
+		return true
+	default:
+		return false
+	}
+}
+
+// RoleStrings converts roles to their database representation.
+func RoleStrings(roles []Role) []string {
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		out = append(out, string(role))
+	}
+	return out
+}
+
 // RolesForPermission returns roles that may satisfy a permission within a valid scope.
 func RolesForPermission(permission Permission) []Role {
 	switch permission {
@@ -107,6 +159,24 @@ func RolesForPermission(permission Permission) []Role {
 	case PermissionDocumentRead:
 		return []Role{RoleAdmin, RoleRegionAdmin, RoleJVAdmin, RoleContributor, RoleAuditor, RoleVisitor}
 	case PermissionDocumentDelete:
+		return []Role{RoleAdmin, RoleRegionAdmin, RoleJVAdmin}
+	case PermissionRegionCreate:
+		return []Role{RoleAdmin}
+	case PermissionRegionRead:
+		return []Role{RoleAdmin, RoleRegionAdmin, RoleJVAdmin, RoleContributor, RoleAuditor, RoleVisitor}
+	case PermissionRegionUpdate:
+		return []Role{RoleAdmin, RoleRegionAdmin}
+	case PermissionRegionDelete:
+		return []Role{RoleAdmin}
+	case PermissionJVCreate:
+		return []Role{RoleAdmin, RoleRegionAdmin}
+	case PermissionJVRead:
+		return []Role{RoleAdmin, RoleRegionAdmin, RoleJVAdmin, RoleContributor, RoleAuditor, RoleVisitor}
+	case PermissionJVUpdate:
+		return []Role{RoleAdmin, RoleRegionAdmin, RoleJVAdmin}
+	case PermissionJVDelete:
+		return []Role{RoleAdmin, RoleRegionAdmin}
+	case PermissionMembershipManage:
 		return []Role{RoleAdmin, RoleRegionAdmin, RoleJVAdmin}
 	default:
 		return nil

@@ -35,9 +35,9 @@ fetch("http://localhost:8080/auth/me", {
 | Processing status | Disponivel | `document.status` no payload e endpoint dedicado por documento |
 | Storage metadata | Interno | Persistido no backend; frontend nao chama direto |
 | Outbox/jobs | Interno | Persistido no backend; frontend nao chama direto |
-| Regions CRUD | Planejado | Mockar no frontend |
-| Joint Ventures CRUD | Planejado | Mockar no frontend |
-| Memberships | Planejado | Mockar administracao de acessos |
+| Regions CRUD | Disponivel | CRUD autenticado com permissao por escopo |
+| Joint Ventures CRUD | Disponivel | CRUD autenticado com heranca system/region/JV |
+| Memberships | Disponivel | Administracao de acessos por system/region/JV |
 | Audit runs/findings | Planejado | Mockar telas ate existir backend |
 | Prompt management | Planejado | Mockar telas ate existir backend |
 
@@ -140,6 +140,28 @@ Upload:
 - `POST /joint-ventures/{jvID}/documents/upload-url`
 - `POST /documents/{documentID}/upload-complete`
 
+Access:
+
+- `GET /access/memberships`
+- `POST /access/memberships`
+- `DELETE /access/memberships/{membershipID}`
+
+Regions:
+
+- `GET /regions`
+- `POST /regions`
+- `GET /regions/{regionID}`
+- `PATCH /regions/{regionID}`
+- `DELETE /regions/{regionID}`
+
+Joint Ventures:
+
+- `GET /regions/{regionID}/joint-ventures`
+- `POST /regions/{regionID}/joint-ventures`
+- `GET /joint-ventures/{jvID}`
+- `PATCH /joint-ventures/{jvID}`
+- `DELETE /joint-ventures/{jvID}`
+
 ### 5. Fluxo de upload recomendado
 
 1. Chame `POST /joint-ventures/{jvID}/documents/upload-url`.
@@ -151,9 +173,6 @@ Upload:
 
 No backend atual, ainda nao existem handlers HTTP para:
 
-- regioes
-- joint ventures CRUD
-- memberships
 - audit runs/findings
 - prompt management
 
@@ -958,13 +977,26 @@ Status:
 | `503` | Azure Blob Storage nao configurado no backend |
 | `500` | Erro interno |
 
-## Areas Planejadas
+## Access, Regions e Joint Ventures
 
-As secoes abaixo ainda nao possuem handlers HTTP implementados no backend atual.
+As secoes abaixo possuem handlers HTTP implementados no backend atual.
 
-### Regioes e Joint Ventures
+### Tipos
 
-Tipos recomendados:
+Membership:
+
+```ts
+export type Membership = {
+  id: string;
+  user_login: string;
+  role: Role;
+  scope_type: ScopeType;
+  scope_id?: string;
+  created_at: string;
+};
+```
+
+Regioes e Joint Ventures:
 
 ```ts
 export type Region = {
@@ -989,46 +1021,79 @@ export type JointVenture = {
 };
 ```
 
-Endpoints planejados:
+### Memberships
+
+Todos os endpoints exigem autenticacao. Gerenciamento de `system` exige `admin` no escopo `system`; gerenciamento de `region` aceita administradores com acesso a essa regiao; gerenciamento de `joint_venture` aceita administradores com acesso herdado ou direto a essa JV.
+
+```http
+GET    /access/memberships?user_login=&scope_type=&scope_id=
+POST   /access/memberships
+DELETE /access/memberships/{membershipID}
+```
+
+POST body:
+
+```json
+{
+  "user_login": "auditor@example.com",
+  "role": "auditor",
+  "scope_type": "joint_venture",
+  "scope_id": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+Para `scope_type: "system"`, omita `scope_id`.
+
+### Regioes
+
+Todos os endpoints exigem autenticacao. Criar/deletar regiao exige `admin` em `system`; leitura e update usam permissao no escopo da regiao ou superior.
 
 ```http
 GET    /regions
 POST   /regions
 GET    /regions/{regionID}
-PUT    /regions/{regionID}
+PATCH  /regions/{regionID}
 DELETE /regions/{regionID}
+```
 
+POST/PATCH body:
+
+```json
+{
+  "name": "Latin America",
+  "code": "LATAM"
+}
+```
+
+### Joint Ventures
+
+Todos os endpoints exigem autenticacao. Acesso a JV aceita heranca de `system`, de `region` ou membership direto em `joint_venture`. A listagem por regiao retorna somente JVs visiveis para o usuario.
+
+```http
 GET    /regions/{regionID}/joint-ventures
-GET    /joint-ventures
-POST   /joint-ventures
+POST   /regions/{regionID}/joint-ventures
 GET    /joint-ventures/{jvID}
-PUT    /joint-ventures/{jvID}
+PATCH  /joint-ventures/{jvID}
 DELETE /joint-ventures/{jvID}
 ```
 
-### Memberships
+POST body:
 
-Tipo recomendado:
-
-```ts
-export type Membership = {
-  id: string;
-  user_login: string;
-  role: Role;
-  scope_type: ScopeType;
-  scope_id: string | null;
-  created_at: string;
-};
+```json
+{
+  "name": "JV Alpha",
+  "parties": ["Company A", "Company B"],
+  "metadata": {
+    "country": "BR"
+  }
+}
 ```
 
-Endpoints planejados:
+PATCH body aceita `name`, `parties`, `status` e `metadata`.
 
-```http
-GET    /memberships
-POST   /memberships
-DELETE /memberships/{membershipID}
-GET    /users
-```
+## Areas Planejadas
+
+As secoes abaixo ainda nao possuem handlers HTTP implementados no backend atual.
 
 ### Prompt Management
 

@@ -1076,18 +1076,18 @@ mutação de dado + audit_event devem acontecer na mesma transação
 
 ### Fase 2 — Autorização real
 
-- [ ] Criar roles e permissions.
-- [ ] Criar memberships por `system`, `region`, `joint_venture`.
-- [ ] Criar middleware `RequirePermission`.
-- [ ] Proteger documents por escopo da JV.
-- [ ] Criar endpoints de memberships.
+- [x] Criar roles e permissions.
+- [x] Criar memberships por `system`, `region`, `joint_venture`.
+- [x] Criar middleware `RequirePermission`.
+- [x] Proteger documents por escopo da JV.
+- [x] Criar endpoints de memberships.
 
 ### Fase 3 — Região e JV
 
-- [ ] CRUD de regiões.
-- [ ] CRUD de joint ventures.
-- [ ] Listagem de JVs por região.
-- [ ] Validação de acesso herdado por região.
+- [x] CRUD de regiões.
+- [x] CRUD de joint ventures.
+- [x] Listagem de JVs por região.
+- [x] Validação de acesso herdado por região.
 
 ### Fase 4 — Documentos, Blob e ingestão
 

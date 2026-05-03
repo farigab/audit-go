@@ -3,6 +3,7 @@ package jointventures
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,8 @@ type JointVenture struct {
 
 // New creates a joint venture, validating required fields.
 func New(id, regionID, name, createdBy string, parties []string) (JointVenture, error) {
+	name = strings.TrimSpace(name)
+	parties = CleanParties(parties)
 	if name == "" {
 		return JointVenture{}, errors.New("joint venture name is required")
 	}
@@ -79,4 +82,34 @@ func (jv *JointVenture) Suspend() error {
 // IsActive reports whether the joint venture is currently active.
 func (jv JointVenture) IsActive() bool {
 	return jv.Status == StatusActive
+}
+
+// IsValidStatus reports whether status is supported.
+func IsValidStatus(status Status) bool {
+	switch status {
+	case StatusDraft, StatusActive, StatusSuspended, StatusClosed:
+		return true
+	default:
+		return false
+	}
+}
+
+// NormalizeStatus returns draft when no status was supplied.
+func NormalizeStatus(status Status) Status {
+	if status == "" {
+		return StatusDraft
+	}
+	return status
+}
+
+// CleanParties trims empty party names.
+func CleanParties(parties []string) []string {
+	cleaned := make([]string, 0, len(parties))
+	for _, party := range parties {
+		party = strings.TrimSpace(party)
+		if party != "" {
+			cleaned = append(cleaned, party)
+		}
+	}
+	return cleaned
 }
