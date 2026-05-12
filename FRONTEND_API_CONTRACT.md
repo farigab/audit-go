@@ -40,7 +40,7 @@ fetch("http://localhost:8080/auth/me", {
 | Joint Ventures CRUD | Disponivel | CRUD autenticado com heranca system/region/JV |
 | Memberships | Disponivel | Administracao de acessos por system/region/JV |
 | Audit runs/findings | Planejado | Mockar telas ate existir backend |
-| Prompt management | Planejado | Mockar telas ate existir backend |
+| Prompt management | Disponivel | CRUD basico de prompts, versoes, aprovacao e chatbot |
 
 ## Quick Start do Frontend
 
@@ -176,7 +176,6 @@ Joint Ventures:
 No backend atual, ainda nao existem handlers HTTP para:
 
 - audit runs/findings
-- prompt management
 
 ## Convencoes Gerais
 
@@ -1174,25 +1173,73 @@ POST body:
 
 PATCH body aceita `name`, `parties`, `status` e `metadata`.
 
-## Areas Planejadas
+## Prompt Management e Chatbot
 
-As secoes abaixo ainda nao possuem handlers HTTP implementados no backend atual.
-
-### Prompt Management
-
-Endpoints planejados:
+Todos os endpoints exigem autenticacao. Criar/alterar/aprovar/depreciar versoes exige perfil administrativo (`admin`, `region_admin` ou `jv_admin`). Consultas de chatbot exigem permissao de leitura na JV.
 
 ```http
 GET    /prompts
 POST   /prompts
-GET    /prompts/{promptID}
-POST   /prompts/{promptID}/versions
 GET    /prompts/{promptID}/versions
-POST   /prompt-versions/{versionID}/test
+POST   /prompts/{promptID}/versions
 POST   /prompt-versions/{versionID}/approve
 POST   /prompt-versions/{versionID}/deprecate
-GET    /prompt-runs?audit_run_id=
+POST   /chat
+GET    /prompt-runs?jv_id=
 ```
+
+POST `/prompts`:
+
+```json
+{
+  "name": "Revisao documental de JV",
+  "description": "Chat operacional restrito aos documentos processados",
+  "category": "audit_chat",
+  "system_prompt": "Voce e um assistente especialista em auditoria...",
+  "user_template": "Contexto:\n{{context}}\n\nPergunta: {{question}}",
+  "model": "gpt-4o-mini",
+  "temperature": 0.2
+}
+```
+
+POST `/chat`:
+
+```json
+{
+  "jv_id": "00000000-0000-0000-0000-000000000000",
+  "question": "Quais riscos devo priorizar?",
+  "prompt_id": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+Resposta:
+
+```json
+{
+  "run": {
+    "id": "run-uuid",
+    "prompt_version_id": "version-uuid",
+    "jv_id": "jv-uuid",
+    "question": "Quais riscos devo priorizar?",
+    "answer": "Resposta baseada nos chunks processados...",
+    "context_bytes": 12000,
+    "created_by": "auditor@example.com",
+    "created_at": "2026-05-11T12:00:00Z"
+  },
+  "prompt_version": {
+    "id": "version-uuid",
+    "prompt_id": "prompt-uuid",
+    "version": 1,
+    "status": "approved",
+    "model": "gpt-4o-mini",
+    "temperature": 0.2
+  }
+}
+```
+
+## Areas Planejadas
+
+As secoes abaixo ainda nao possuem handlers HTTP implementados no backend atual.
 
 ### Audit Runs e Findings
 

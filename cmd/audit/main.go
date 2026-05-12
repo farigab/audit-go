@@ -23,6 +23,9 @@ import (
 	processingpostgres "audit-go/internal/features/processing/postgres"
 	processingpython "audit-go/internal/features/processing/python"
 	processingworker "audit-go/internal/features/processing/worker"
+	promptsapp "audit-go/internal/features/prompts/app"
+	promptshttp "audit-go/internal/features/prompts/http"
+	promptspostgres "audit-go/internal/features/prompts/postgres"
 	regionsapp "audit-go/internal/features/regions/app"
 	regionshttp "audit-go/internal/features/regions/http"
 	regionspostgres "audit-go/internal/features/regions/postgres"
@@ -34,6 +37,25 @@ import (
 	"audit-go/internal/platform/security"
 	"audit-go/internal/platform/storage"
 )
+
+type promptChatClient struct {
+	client *processingpython.Client
+}
+
+func (c promptChatClient) Chat(ctx context.Context, req promptsapp.ChatClientRequest) (promptsapp.ChatClientResponse, error) {
+	resp, err := c.client.Chat(ctx, processingpython.ChatRequest{
+		Context:      req.Context,
+		Question:     req.Question,
+		SystemPrompt: req.SystemPrompt,
+		UserTemplate: req.UserTemplate,
+		Model:        req.Model,
+		Temperature:  req.Temperature,
+	})
+	if err != nil {
+		return promptsapp.ChatClientResponse{}, err
+	}
+	return promptsapp.ChatClientResponse{Answer: resp.Answer}, nil
+}
 
 func main() {
 	cfg := config.Load()
@@ -60,6 +82,7 @@ func main() {
 	auditRepo := auditpostgres.NewRepository(db)
 	storageRepo := storage.NewRepository(db)
 	processingRepo := processingpostgres.NewRepository(db)
+	promptRepo := promptspostgres.NewRepository(db)
 	pythonClient := processingpython.NewClient(cfg.PythonServiceURL)
 	authorizer := accesspostgres.NewAuthorizer(db)
 	membershipRepo := accesspostgres.NewMembershipRepository(db)
@@ -210,6 +233,25 @@ func main() {
 		Authorizer: authorizer,
 	}
 
+	createPrompt := promptsapp.CreatePromptUseCase{Repo: promptRepo}
+	listPrompts := promptsapp.ListPromptsUseCase{Repo: promptRepo}
+	createPromptVersion := promptsapp.CreateVersionUseCase{Repo: promptRepo}
+	listPromptVersions := promptsapp.ListVersionsUseCase{Repo: promptRepo}
+	approvePromptVersion := promptsapp.ApproveVersionUseCase{Repo: promptRepo}
+	deprecatePromptVersion := promptsapp.DeprecateVersionUseCase{Repo: promptRepo}
+	chatPrompt := promptsapp.ChatUseCase{
+		Repo:           promptRepo,
+		DocRepo:        docRepo,
+		ProcessingRepo: processingRepo,
+		Authorizer:     authorizer,
+		AuditRepo:      auditRepo,
+		ChatClient:     promptChatClient{client: pythonClient},
+	}
+	listPromptRuns := promptsapp.ListRunsUseCase{
+		Repo:       promptRepo,
+		Authorizer: authorizer,
+	}
+
 	// router
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +296,21 @@ func main() {
 			getProcessingStatus,
 			listDocumentChunks,
 			listDocsByJV,
+		),
+	)
+	promptshttp.RegisterRoutes(
+		mux,
+		auth,
+		promptshttp.NewHandler(
+			log,
+			createPrompt,
+			listPrompts,
+			createPromptVersion,
+			listPromptVersions,
+			approvePromptVersion,
+			deprecatePromptVersion,
+			chatPrompt,
+			listPromptRuns,
 		),
 	)
 

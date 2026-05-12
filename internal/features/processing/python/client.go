@@ -23,6 +23,21 @@ type ParsedTable = processing.ParsedTable
 // ParseResult represents the parsed output returned by the Python service.
 type ParseResult = processing.ParseResult
 
+// ChatRequest is the payload sent to the Python chatbot endpoint.
+type ChatRequest struct {
+	Context      string  `json:"context"`
+	Question     string  `json:"question"`
+	SystemPrompt string  `json:"system_prompt"`
+	UserTemplate string  `json:"user_template"`
+	Model        string  `json:"model"`
+	Temperature  float64 `json:"temperature"`
+}
+
+// ChatResponse is the chatbot response returned by the Python service.
+type ChatResponse struct {
+	Answer string `json:"answer"`
+}
+
 // Client is a lightweight client for the Python parsing service.
 type Client struct {
 	baseURL    string
@@ -78,6 +93,44 @@ func (c *Client) ParseDocument(ctx context.Context, filename string, content []b
 	}
 
 	return &result, nil
+}
+
+// Chat asks the Python service to answer a question using the provided prompt and context.
+func (c *Client) Chat(ctx context.Context, reqBody ChatRequest) (ChatResponse, error) {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return ChatResponse{}, fmt.Errorf("marshaling chat request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat", bytes.NewReader(body))
+	if err != nil {
+		return ChatResponse{}, fmt.Errorf("creating chat request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ChatResponse{}, fmt.Errorf("chat request cancelled: %w", ctx.Err())
+		}
+		return ChatResponse{}, fmt.Errorf("calling python chat service: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		b, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return ChatResponse{}, fmt.Errorf("python chat service error %d (could not read body): %w", resp.StatusCode, readErr)
+		}
+		return ChatResponse{}, fmt.Errorf("python chat service error %d: %s", resp.StatusCode, b)
+	}
+
+	var result ChatResponse
+	if err = json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ChatResponse{}, fmt.Errorf("decoding chat response: %w", err)
+	}
+
+	return result, nil
 }
 
 // Health checks if the Python service is alive.
