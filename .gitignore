@@ -21,6 +21,7 @@ __debug_bin.exe
 *.test
 *.out
 .gocache/
+.cache/
 
 # arquivos do sistema
 .DS_Store

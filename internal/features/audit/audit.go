@@ -15,6 +15,8 @@ const (
 	ActionDocumentDeleted         Action = "document.deleted"
 	ActionDocumentParsed          Action = "document.parsed"
 	ActionChatQueried             Action = "chat.queried"
+	ActionSamplingRuleSetCreated  Action = "sampling.rule_set_created"
+	ActionSamplingRunCreated      Action = "sampling.run_created"
 )
 
 // TargetType identifies the entity affected by an event.
@@ -24,6 +26,7 @@ const (
 	TargetJointVenture TargetType = "joint_venture"
 	TargetDocument     TargetType = "document"
 	TargetChat         TargetType = "chat"
+	TargetSampling     TargetType = "sampling"
 )
 
 // Event is immutable by design: it is inserted once and never updated.

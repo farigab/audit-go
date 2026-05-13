@@ -29,6 +29,9 @@ import (
 	regionsapp "audit-go/internal/features/regions/app"
 	regionshttp "audit-go/internal/features/regions/http"
 	regionspostgres "audit-go/internal/features/regions/postgres"
+	samplingapp "audit-go/internal/features/sampling/app"
+	samplinghttp "audit-go/internal/features/sampling/http"
+	samplingpostgres "audit-go/internal/features/sampling/postgres"
 	"audit-go/internal/platform/config"
 	"audit-go/internal/platform/httpx"
 	"audit-go/internal/platform/httpx/middleware"
@@ -83,6 +86,7 @@ func main() {
 	storageRepo := storage.NewRepository(db)
 	processingRepo := processingpostgres.NewRepository(db)
 	promptRepo := promptspostgres.NewRepository(db)
+	samplingRepo := samplingpostgres.NewRepository(db)
 	pythonClient := processingpython.NewClient(cfg.PythonServiceURL)
 	authorizer := accesspostgres.NewAuthorizer(db)
 	membershipRepo := accesspostgres.NewMembershipRepository(db)
@@ -251,6 +255,32 @@ func main() {
 		Repo:       promptRepo,
 		Authorizer: authorizer,
 	}
+	createSamplingRuleSet := samplingapp.CreateRuleSetUseCase{
+		Repo:       samplingRepo,
+		AuditRepo:  auditRepo,
+		Authorizer: authorizer,
+		Transactor: transactor,
+	}
+	listSamplingRuleSets := samplingapp.ListRuleSetsUseCase{
+		Repo:       samplingRepo,
+		Authorizer: authorizer,
+	}
+	previewSampling := samplingapp.PreviewUseCase{
+		Repo:       samplingRepo,
+		DocRepo:    docRepo,
+		Authorizer: authorizer,
+	}
+	createSamplingRun := samplingapp.CreateRunUseCase{
+		Repo:       samplingRepo,
+		DocRepo:    docRepo,
+		AuditRepo:  auditRepo,
+		Authorizer: authorizer,
+		Transactor: transactor,
+	}
+	listSamplingRuns := samplingapp.ListRunsUseCase{
+		Repo:       samplingRepo,
+		Authorizer: authorizer,
+	}
 
 	// router
 	mux := http.NewServeMux()
@@ -311,6 +341,18 @@ func main() {
 			deprecatePromptVersion,
 			chatPrompt,
 			listPromptRuns,
+		),
+	)
+	samplinghttp.RegisterRoutes(
+		mux,
+		auth,
+		samplinghttp.NewHandler(
+			log,
+			createSamplingRuleSet,
+			listSamplingRuleSets,
+			previewSampling,
+			createSamplingRun,
+			listSamplingRuns,
 		),
 	)
 
